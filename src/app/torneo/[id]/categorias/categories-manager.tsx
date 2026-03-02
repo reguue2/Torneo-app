@@ -1,255 +1,214 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 
+interface Category {
+  id: string
+  name: string
+  price: number
+  max_teams: number
+  min_players: number
+  max_players: number
+}
+
 export default function CategoriesManager({
   tournamentId,
+  initialCategories,
 }: {
   tournamentId: string
+  initialCategories: Category[]
 }) {
   const supabase = createClient()
   const router = useRouter()
 
-  const [categories, setCategories] = useState<any[]>([])
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [categories, setCategories] =
+    useState<Category[]>(initialCategories)
 
   const [form, setForm] = useState({
     name: "",
     price: 0,
-    max_teams: 16,
+    max_teams: 1,
     min_players: 1,
     max_players: 1,
   })
 
-  const fetchCategories = async () => {
-    const { data } = await supabase
-      .from("categories")
-      .select("*")
-      .eq("tournament_id", tournamentId)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
 
-    setCategories(data || [])
-  }
+  const addCategory = async () => {
+    setError(null)
 
-  useEffect(() => {
-    fetchCategories()
-  }, [])
+    if (!form.name.trim()) {
+      setError("El nombre es obligatorio")
+      return
+    }
 
-  const handleChange = (e: any) => {
-    const { name, value } = e.target
-    setForm({ ...form, [name]: value })
-  }
+    if (form.price < 0) {
+      setError("El precio no puede ser negativo")
+      return
+    }
 
-  const resetForm = () => {
-    setForm({
-      name: "",
-      price: 0,
-      max_teams: 16,
-      min_players: 1,
-      max_players: 1,
-    })
-    setEditingId(null)
-  }
+    if (form.max_teams < 1) {
+      setError("Debe haber al menos 1 equipo")
+      return
+    }
 
-  const saveCategory = async () => {
+    if (form.min_players < 1) {
+      setError("Mínimo 1 jugador")
+      return
+    }
+
+    if (form.max_players < form.min_players) {
+      setError("El máximo de jugadores no puede ser menor al mínimo")
+      return
+    }
+
     setLoading(true)
 
-    let error
-
-    if (editingId) {
-      const response = await supabase
-        .from("categories")
-        .update({
-          name: form.name,
-          price: Number(form.price),
-          max_teams: Number(form.max_teams),
-          min_players: Number(form.min_players),
-          max_players: Number(form.max_players),
-        })
-        .eq("id", editingId)
-
-      error = response.error
-    } else {
-      const response = await supabase.from("categories").insert({
+    const { data, error: insertError } = await supabase
+      .from("categories")
+      .insert({
         tournament_id: tournamentId,
         name: form.name,
-        price: Number(form.price),
-        max_teams: Number(form.max_teams),
-        min_players: Number(form.min_players),
-        max_players: Number(form.max_players),
+        price: form.price,
+        max_teams: form.max_teams,
+        min_players: form.min_players,
+        max_players: form.max_players,
       })
-
-      error = response.error
-    }
+      .select()
+      .single()
 
     setLoading(false)
 
-    if (error) {
-      alert(error.message)
+    if (insertError) {
+      setError(insertError.message)
       return
     }
 
-    resetForm()
-    fetchCategories()
-  }
-
-  const editCategory = (cat: any) => {
-    setEditingId(cat.id)
+    setCategories([...categories, data])
     setForm({
-      name: cat.name,
-      price: cat.price,
-      max_teams: cat.max_teams,
-      min_players: cat.min_players,
-      max_players: cat.max_players,
+      name: "",
+      price: 0,
+      max_teams: 1,
+      min_players: 1,
+      max_players: 1,
     })
   }
 
-  const deleteCategory = async (id: string) => {
-    const { error } = await supabase
-      .from("categories")
-      .delete()
-      .eq("id", id)
-
-    if (error) {
-      alert(error.message)
-      return
-    }
-
-    fetchCategories()
+  const continueToPayments = () => {
+    router.push(`/torneo/${tournamentId}/pagos`)
   }
 
   return (
     <div className="space-y-10">
+      {error && (
+        <div className="bg-red-50 text-red-600 p-4 rounded-lg">
+          {error}
+        </div>
+      )}
 
-      {/* Formulario */}
       <div className="card space-y-6">
         <h2 className="text-lg font-semibold">
-          {editingId ? "Editar Categoría" : "Añadir Categoría"}
+          Nueva Categoría
         </h2>
 
         <input
-          name="name"
-          placeholder="Nombre (Ej: Absoluto)"
-          className="w-full border border-gray-300 rounded-lg px-4 py-3"
+          placeholder="Nombre"
+          className="input"
           value={form.name}
-          onChange={handleChange}
+          onChange={(e) =>
+            setForm({ ...form, name: e.target.value })
+          }
         />
 
         <div className="grid md:grid-cols-2 gap-6">
           <input
             type="number"
-            name="price"
-            placeholder="Precio (€)"
-            className="border border-gray-300 rounded-lg px-4 py-3"
+            placeholder="Precio"
+            className="input"
             value={form.price}
-            onChange={handleChange}
+            onChange={(e) =>
+              setForm({ ...form, price: Number(e.target.value) })
+            }
           />
 
           <input
             type="number"
-            name="max_teams"
-            placeholder="Máx Equipos"
-            className="border border-gray-300 rounded-lg px-4 py-3"
+            placeholder="Máx equipos"
+            className="input"
             value={form.max_teams}
-            onChange={handleChange}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                max_teams: Number(e.target.value),
+              })
+            }
           />
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">
           <input
             type="number"
-            name="min_players"
-            placeholder="Min Jugadores"
-            className="border border-gray-300 rounded-lg px-4 py-3"
+            placeholder="Mín jugadores"
+            className="input"
             value={form.min_players}
-            onChange={handleChange}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                min_players: Number(e.target.value),
+              })
+            }
           />
 
           <input
             type="number"
-            name="max_players"
-            placeholder="Max Jugadores"
-            className="border border-gray-300 rounded-lg px-4 py-3"
+            placeholder="Máx jugadores"
+            className="input"
             value={form.max_players}
-            onChange={handleChange}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                max_players: Number(e.target.value),
+              })
+            }
           />
         </div>
 
-        <div className="flex gap-4">
-          <button
-            onClick={saveCategory}
-            disabled={loading}
-            className="btn-primary"
-          >
-            {loading
-              ? "Guardando..."
-              : editingId
-              ? "Actualizar"
-              : "Añadir"}
-          </button>
+        <button
+          onClick={addCategory}
+          disabled={loading}
+          className="btn-primary"
+        >
+          {loading ? "Añadiendo..." : "Añadir Categoría"}
+        </button>
+      </div>
 
-          {editingId && (
-            <button
-              onClick={resetForm}
-              className="btn-secondary"
+      {categories.length > 0 && (
+        <div className="card space-y-4">
+          <h2 className="text-lg font-semibold">
+            Categorías creadas
+          </h2>
+
+          {categories.map((cat) => (
+            <div
+              key={cat.id}
+              className="flex justify-between border-b pb-2"
             >
-              Cancelar
-            </button>
-          )}
+              <span>{cat.name}</span>
+              <span>{cat.price}€</span>
+            </div>
+          ))}
         </div>
-      </div>
-
-      {/* Lista */}
-      <div className="card space-y-6">
-        <h2 className="text-lg font-semibold">Categorías Creadas</h2>
-
-        {categories.length === 0 && (
-          <p className="text-gray-500">Aún no hay categorías.</p>
-        )}
-
-        {categories.map((cat) => (
-          <div
-            key={cat.id}
-            className="flex justify-between items-center border p-4 rounded-lg"
-          >
-            <div>
-              <p className="font-medium">{cat.name}</p>
-              <p className="text-sm text-gray-500">
-                €{cat.price} · {cat.max_teams} equipos ·{" "}
-                {cat.min_players}-{cat.max_players} jugadores
-              </p>
-            </div>
-
-            <div className="flex gap-4">
-              <button
-                onClick={() => editCategory(cat)}
-                className="text-indigo-600 text-sm"
-              >
-                Editar
-              </button>
-
-              <button
-                onClick={() => deleteCategory(cat.id)}
-                className="text-red-500 text-sm"
-              >
-                Eliminar
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+      )}
 
       <div className="flex justify-end">
         <button
-          disabled={categories.length === 0}
-          onClick={() =>
-            router.push(`/torneo/${tournamentId}/pagos`)
-          }
+          onClick={continueToPayments}
           className="btn-primary"
         >
-          Continuar
+          Continuar a Pagos
         </button>
       </div>
     </div>

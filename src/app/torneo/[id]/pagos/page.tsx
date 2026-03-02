@@ -1,8 +1,8 @@
 import { createClient } from "@/lib/supabase/server"
 import { redirect } from "next/navigation"
-import CategoriesManager from "./categories-manager"
+import PaymentConfig from "./payment-config"
 
-export default async function CategoriasPage({
+export default async function PagosPage({
   params,
 }: {
   params: Promise<{ id: string }>
@@ -18,7 +18,7 @@ export default async function CategoriasPage({
 
   const { data: tournament } = await supabase
     .from("tournaments")
-    .select("id, organizer_id, status, has_categories")
+    .select("id, organizer_id, status, payment_method")
     .eq("id", id)
     .single()
 
@@ -26,27 +26,19 @@ export default async function CategoriasPage({
     redirect("/")
   }
 
-  if (!tournament.has_categories) {
-    redirect(`/torneo/${id}/pagos`)
-  }
-
   if (tournament.status !== "draft") {
     redirect(`/torneo/${id}`)
   }
 
-  const { data: categories } = await supabase
-    .from("categories")
-    .select("*")
-    .eq("tournament_id", id)
-    .order("created_at", { ascending: true })
-
   return (
     <div className="container-custom py-16">
-      <h1 className="text-3xl font-bold mb-8">Categorías</h1>
+      <h1 className="text-3xl font-bold mb-8">
+        Configuración de Pagos
+      </h1>
 
-      <CategoriesManager
+      <PaymentConfig
         tournamentId={id}
-        initialCategories={categories || []}
+        currentMethod={tournament.payment_method}
       />
     </div>
   )

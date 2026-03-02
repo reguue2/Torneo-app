@@ -9,9 +9,7 @@ export default async function CrearTorneoPage() {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) {
-    redirect("/login")
-  }
+  if (!user) redirect("/login")
 
   return (
     <div className="container-custom py-16">
@@ -20,7 +18,7 @@ export default async function CrearTorneoPage() {
         Configura tu torneo y comienza a aceptar inscripciones
       </p>
 
-      <CreateTournamentForm userId={user.id} />
+      <CreateTournamentForm />
     </div>
   )
 }
