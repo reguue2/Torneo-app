@@ -16,9 +16,7 @@ export default function PaymentConfig({
   const supabase = createClient()
   const router = useRouter()
 
-  const [method, setMethod] = useState<PaymentMethod | null>(
-    currentMethod
-  )
+  const [method, setMethod] = useState<PaymentMethod | null>(currentMethod)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -56,28 +54,48 @@ export default function PaymentConfig({
       )}
 
       <div className="card space-y-6">
-        <h2 className="text-lg font-semibold">
-          Selecciona el método de pago
-        </h2>
+        <div>
+          <h2 className="text-lg font-semibold">Selecciona el método de pago</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Esto define qué verán los participantes al inscribirse.
+          </p>
+
+          <div className="mt-4 bg-gray-50 border border-gray-200 text-gray-700 p-4 rounded-lg text-sm">
+            <p className="font-medium">Nota sobre pago online</p>
+            <p className="mt-1">
+              Stripe se implementará en una fase posterior. Puedes dejarlo configurado,
+              pero el cobro real aún no está activo.
+            </p>
+          </div>
+        </div>
 
         <div className="space-y-4">
           <Option
             selected={method === "cash"}
-            onClick={() => setMethod("cash")}
+            onClick={() => {
+              setError(null)
+              setMethod("cash")
+            }}
             title="Solo efectivo"
-            description="Los participantes pagarán el día del torneo."
+            description="Los participantes pagarán en persona (lo marcas como pagado manualmente)."
           />
 
           <Option
             selected={method === "online"}
-            onClick={() => setMethod("online")}
+            onClick={() => {
+              setError(null)
+              setMethod("online")
+            }}
             title="Solo pago online"
-            description="Los participantes pagarán con tarjeta."
+            description="Pago con tarjeta (Stripe)."
           />
 
           <Option
             selected={method === "both"}
-            onClick={() => setMethod("both")}
+            onClick={() => {
+              setError(null)
+              setMethod("both")
+            }}
             title="Efectivo y pago online"
             description="Permitir ambas opciones."
           />
@@ -85,11 +103,7 @@ export default function PaymentConfig({
       </div>
 
       <div className="flex justify-end">
-        <button
-          onClick={save}
-          disabled={loading}
-          className="btn-primary"
-        >
+        <button onClick={save} disabled={loading} className="btn-primary">
           {loading ? "Guardando..." : "Continuar"}
         </button>
       </div>
@@ -109,18 +123,17 @@ function Option({
   description: string
 }) {
   return (
-    <div
+    <button
+      type="button"
       onClick={onClick}
-      className={`p-4 border rounded-lg cursor-pointer transition ${
+      className={`w-full text-left p-4 border rounded-lg cursor-pointer transition ${
         selected
           ? "border-indigo-600 bg-indigo-50"
           : "border-gray-300 hover:border-gray-400"
       }`}
     >
       <h3 className="font-medium">{title}</h3>
-      <p className="text-sm text-gray-500 mt-1">
-        {description}
-      </p>
-    </div>
+      <p className="text-sm text-gray-500 mt-1">{description}</p>
+    </button>
   )
 }

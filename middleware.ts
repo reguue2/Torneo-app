@@ -25,7 +25,8 @@ export async function middleware(req: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const protectedRoutes = ["/mis-torneos", "/crear-torneo"]
+  // Rutas protegidas: todo el wizard + mis torneos
+  const protectedRoutes = ["/mis-torneos", "/crear-torneo", "/torneo"]
 
   const isProtected = protectedRoutes.some((route) =>
     req.nextUrl.pathname.startsWith(route)
@@ -39,5 +40,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/mis-torneos/:path*", "/crear-torneo/:path*"],
+  matcher: ["/mis-torneos/:path*", "/crear-torneo/:path*", "/torneo/:path*"],
 }

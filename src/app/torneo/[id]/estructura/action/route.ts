@@ -6,7 +6,6 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   const { id } = await context.params
-
   const supabase = await createClient()
 
   const {
@@ -20,21 +19,21 @@ export async function POST(
   const formData = await req.formData()
   const structure = formData.get("structure")
 
-  const hasCategories = structure === "with"
+  const hasCategories = structure === "without" ? false : true
 
-  await supabase
+  const { error } = await supabase
     .from("tournaments")
     .update({ has_categories: hasCategories })
     .eq("id", id)
     .eq("organizer_id", user.id)
 
-  if (hasCategories) {
-    return NextResponse.redirect(
-      new URL(`/torneo/${id}/categorias`, req.url)
-    )
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 })
   }
 
-  return NextResponse.redirect(
-    new URL(`/torneo/${id}/pagos`, req.url)
-  )
+  if (hasCategories) {
+    return NextResponse.redirect(new URL(`/torneo/${id}/categorias`, req.url))
+  }
+
+  return NextResponse.redirect(new URL(`/torneo/${id}/cupos`, req.url))
 }
