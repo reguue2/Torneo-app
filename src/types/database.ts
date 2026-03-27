@@ -21,8 +21,8 @@ export type Database = {
           min_participants: number
           max_participants: number | null
           start_at: string | null
-          city: string | null
           address: string | null
+          prizes: string | null
         }
         Insert: {
           id?: string
@@ -32,8 +32,8 @@ export type Database = {
           min_participants?: number
           max_participants?: number | null
           start_at?: string | null
-          city?: string | null
           address?: string | null
+          prizes?: string | null
         }
         Update: {
           id?: string
@@ -43,8 +43,8 @@ export type Database = {
           min_participants?: number
           max_participants?: number | null
           start_at?: string | null
-          city?: string | null
           address?: string | null
+          prizes?: string | null
         }
         Relationships: [
           {
@@ -98,9 +98,7 @@ export type Database = {
           tournament_id: string | null
           participant_id: string
           status: Database["public"]["Enums"]["registration_status"] | null
-          payment_method:
-            | Database["public"]["Enums"]["registration_payment_method"]
-            | null
+          payment_method: Database["public"]["Enums"]["registration_payment_method"] | null
           created_at: string | null
         }
         Insert: {
@@ -109,9 +107,7 @@ export type Database = {
           tournament_id?: string | null
           participant_id: string
           status?: Database["public"]["Enums"]["registration_status"] | null
-          payment_method?:
-            | Database["public"]["Enums"]["registration_payment_method"]
-            | null
+          payment_method?: Database["public"]["Enums"]["registration_payment_method"] | null
           created_at?: string | null
         }
         Update: {
@@ -120,9 +116,7 @@ export type Database = {
           tournament_id?: string | null
           participant_id?: string
           status?: Database["public"]["Enums"]["registration_status"] | null
-          payment_method?:
-            | Database["public"]["Enums"]["registration_payment_method"]
-            | null
+          payment_method?: Database["public"]["Enums"]["registration_payment_method"] | null
           created_at?: string | null
         }
         Relationships: [
@@ -156,9 +150,7 @@ export type Database = {
           registration_id: string
           amount: number
           currency: string | null
-          payment_method:
-            | Database["public"]["Enums"]["registration_payment_method"]
-            | null
+          payment_method: Database["public"]["Enums"]["registration_payment_method"] | null
           status: Database["public"]["Enums"]["payment_status"] | null
           stripe_payment_intent_id: string | null
           paid_at: string | null
@@ -169,9 +161,7 @@ export type Database = {
           registration_id: string
           amount: number
           currency?: string | null
-          payment_method?:
-            | Database["public"]["Enums"]["registration_payment_method"]
-            | null
+          payment_method?: Database["public"]["Enums"]["registration_payment_method"] | null
           status?: Database["public"]["Enums"]["payment_status"] | null
           stripe_payment_intent_id?: string | null
           paid_at?: string | null
@@ -182,9 +172,7 @@ export type Database = {
           registration_id?: string
           amount?: number
           currency?: string | null
-          payment_method?:
-            | Database["public"]["Enums"]["registration_payment_method"]
-            | null
+          payment_method?: Database["public"]["Enums"]["registration_payment_method"] | null
           status?: Database["public"]["Enums"]["payment_status"] | null
           stripe_payment_intent_id?: string | null
           paid_at?: string | null
@@ -210,7 +198,7 @@ export type Database = {
           poster_url: string | null
           prizes: string | null
           rules: string | null
-          city: string | null
+          province: string | null
           address: string | null
           date: string | null
           max_participants: number | null
@@ -221,6 +209,8 @@ export type Database = {
           status: Database["public"]["Enums"]["tournament_status"] | null
           created_at: string | null
           has_categories: boolean
+          prize_mode: Database["public"]["Enums"]["prize_mode"]
+          entry_price: number
         }
         Insert: {
           id?: string
@@ -230,7 +220,7 @@ export type Database = {
           poster_url?: string | null
           prizes?: string | null
           rules?: string | null
-          city?: string | null
+          province?: string | null
           address?: string | null
           date?: string | null
           max_participants?: number | null
@@ -241,6 +231,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["tournament_status"] | null
           created_at?: string | null
           has_categories: boolean
+          prize_mode?: Database["public"]["Enums"]["prize_mode"]
+          entry_price?: number
         }
         Update: {
           id?: string
@@ -250,7 +242,7 @@ export type Database = {
           poster_url?: string | null
           prizes?: string | null
           rules?: string | null
-          city?: string | null
+          province?: string | null
           address?: string | null
           date?: string | null
           max_participants?: number | null
@@ -261,6 +253,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["tournament_status"] | null
           created_at?: string | null
           has_categories?: boolean
+          prize_mode?: Database["public"]["Enums"]["prize_mode"]
+          entry_price?: number
         }
         Relationships: [
           {
@@ -316,12 +310,8 @@ export type Database = {
       payment_status: "pending" | "paid" | "refunded"
       registration_payment_method: "cash" | "online"
       registration_status: "pending" | "paid" | "cancelled"
-      tournament_status:
-        | "draft"
-        | "published"
-        | "closed"
-        | "finished"
-        | "cancelled"
+      tournament_status: "draft" | "published" | "closed" | "finished" | "cancelled"
+      prize_mode: "none" | "global" | "per_category"
     }
 
     CompositeTypes: {
@@ -331,7 +321,7 @@ export type Database = {
 }
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof DatabaseWithoutInternals, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
@@ -358,8 +348,12 @@ export type Tables<
     : never
 
 export type TablesInsert<
-  DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
@@ -375,8 +369,12 @@ export type TablesInsert<
     : never
 
 export type TablesUpdate<
-  DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
@@ -392,8 +390,12 @@ export type TablesUpdate<
     : never
 
 export type Enums<
-  DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never = never,
 > = DefaultSchemaEnumNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
@@ -403,8 +405,12 @@ export type Enums<
     : never
 
 export type CompositeTypes<
-  PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"] | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
     : never = never,
 > = PublicCompositeTypeNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
@@ -422,6 +428,7 @@ export const Constants = {
       registration_payment_method: ["cash", "online"],
       registration_status: ["pending", "paid", "cancelled"],
       tournament_status: ["draft", "published", "closed", "finished", "cancelled"],
+      prize_mode: ["none", "global", "per_category"],
     },
   },
 } as const

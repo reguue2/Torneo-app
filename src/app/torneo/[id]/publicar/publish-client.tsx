@@ -11,7 +11,6 @@ type Category = {
   min_participants: number
   max_participants: number | null
   start_at: string | null
-  city: string | null
   address: string | null
   prizes: string | null
 }
@@ -37,13 +36,13 @@ export default function PublishClient({
       .eq("id", tournament.id)
 
     if (error) return
-    router.push("/explorar")
+    router.push(`/torneos/${tournament.id}`)
   }
 
   const formatDate = (d: string | null) => {
     if (!d) return "—"
     const dt = new Date(d)
-    return Number.isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString()
+    return Number.isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString("es-ES")
   }
 
   const capacityLabel = () => {
@@ -65,7 +64,6 @@ export default function PublishClient({
     const value = typeof n === "number" ? n : Number(n)
     if (!Number.isFinite(value)) return "—"
     if (value === 0) return "Gratis"
-    // 10 -> 10€ | 10.5 -> 10.50€
     const str =
       Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.00$/, "")
     return `${str}€`
@@ -94,7 +92,7 @@ export default function PublishClient({
         <div>
           <h3 className="font-semibold text-xl">{tournament.title}</h3>
           <p className="text-sm text-gray-500">
-            {(tournament.city ?? "—")} · {formatDate(tournament.date)}
+            {(tournament.province ?? "—")} · {formatDate(tournament.date)}
           </p>
         </div>
 
@@ -106,15 +104,12 @@ export default function PublishClient({
           <div>
             <span className="font-medium">Cupos:</span> {capacityLabel()}
           </div>
-
-          {/* ✅ Precio */}
           <div>
             <span className="font-medium">Precio:</span>{" "}
             {tournament.has_categories ? "Por categoría" : formatMoney(tournament.entry_price)}
           </div>
         </div>
 
-        {/* Si hay categorías, lista precios por categoría */}
         {tournament.has_categories && (
           <div className="text-sm text-gray-600">
             <h3 className="font-semibold mb-2">Precios por categoría</h3>
@@ -124,7 +119,10 @@ export default function PublishClient({
             ) : (
               <div className="grid gap-3">
                 {categories.map((c) => (
-                  <div key={c.id} className="border rounded-lg p-3 flex items-center justify-between gap-4">
+                  <div
+                    key={c.id}
+                    className="border rounded-lg p-3 flex items-center justify-between gap-4"
+                  >
                     <p className="font-medium text-gray-900">{c.name}</p>
                     <span className="text-sm text-gray-700">{formatMoney(c.price)}</span>
                   </div>
@@ -134,7 +132,6 @@ export default function PublishClient({
           </div>
         )}
 
-        {/* Premios */}
         <div className="text-sm text-gray-600">
           <h3 className="font-semibold mb-2">Premios</h3>
 
@@ -158,13 +155,11 @@ export default function PublishClient({
           )}
         </div>
 
-        {/* Normativa */}
         <div>
           <h3 className="font-semibold mb-2">Reglas / Normativa</h3>
           <p className="text-sm text-gray-600 whitespace-pre-wrap">{tournament.rules ?? "—"}</p>
         </div>
 
-        {/* Método de pago */}
         <div>
           <h3 className="font-semibold mb-2">Método de pago</h3>
           <p className="text-sm text-gray-600">{paymentMethodLabel(tournament.payment_method)}</p>

@@ -15,7 +15,7 @@ export async function createTournament(formData: FormData) {
 
   const title = (formData.get("title") as string | null)?.trim() ?? ""
   const description = (formData.get("description") as string | null)?.trim() ?? ""
-  const city = (formData.get("city") as string | null)?.trim() ?? ""
+  const province = (formData.get("province") as string | null)?.trim() ?? ""
   const address = (formData.get("address") as string | null)?.trim() ?? ""
   const date = (formData.get("date") as string | null)?.trim() ?? ""
   const deadline = (formData.get("registration_deadline") as string | null)?.trim() ?? ""
@@ -23,6 +23,8 @@ export async function createTournament(formData: FormData) {
   const file = formData.get("poster") as File | null
 
   if (!title) throw new Error("El título es obligatorio")
+  if (!province) throw new Error("La provincia es obligatoria")
+  if (!address) throw new Error("La dirección es obligatoria")
   if (!file || file.size === 0) throw new Error("El cartel es obligatorio")
 
   if (deadline && date && new Date(deadline) > new Date(date)) {
@@ -51,13 +53,12 @@ export async function createTournament(formData: FormData) {
       title,
       description: description || null,
       poster_url: posterUrl,
-      city: city || null,
+      province: province || null,
       address: address || null,
       date: date || null,
       registration_deadline: deadline || null,
       is_public: isPublic,
 
-      // defaults: se decide en /estructura
       has_categories: true,
       min_participants: 1,
       max_participants: null,

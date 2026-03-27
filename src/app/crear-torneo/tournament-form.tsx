@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react"
 import { createTournament } from "./actions"
+import { SPAIN_COMMUNITIES } from "@/lib/spain"
 
 type Field =
   | "poster"
   | "title"
-  | "city"
+  | "province"
   | "address"
   | "date"
   | "registration_deadline"
@@ -18,7 +19,7 @@ export default function CreateTournamentForm() {
   const posterBoxRef = useRef<HTMLDivElement | null>(null)
 
   const titleRef = useRef<HTMLInputElement | null>(null)
-  const cityRef = useRef<HTMLInputElement | null>(null)
+  const provinceRef = useRef<HTMLSelectElement | null>(null)
   const addressRef = useRef<HTMLInputElement | null>(null)
   const dateRef = useRef<HTMLInputElement | null>(null)
   const deadlineRef = useRef<HTMLInputElement | null>(null)
@@ -47,7 +48,6 @@ export default function CreateTournamentForm() {
   const pickFile = () => fileInputRef.current?.click()
 
   const setPreviewFromFile = (file: File) => {
-    // valida
     if (!file.type.startsWith("image/")) {
       setErrors((p) => ({ ...p, poster: "El archivo debe ser una imagen válida." }))
       return
@@ -60,7 +60,6 @@ export default function CreateTournamentForm() {
 
     clearError("poster")
 
-    // revoca anterior
     if (previewUrlToRevoke) URL.revokeObjectURL(previewUrlToRevoke)
 
     const url = URL.createObjectURL(file)
@@ -70,10 +69,7 @@ export default function CreateTournamentForm() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null
-
-    // ✅ Si el usuario cancela el diálogo, NO marques error si ya había imagen
     if (!file) return
-
     setPreviewFromFile(file)
   }
 
@@ -81,10 +77,8 @@ export default function CreateTournamentForm() {
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files?.[0] ?? null
-
     if (!file) return
 
-    // sincroniza el input real para que el file viaje en el FormData
     if (fileInputRef.current) {
       const dt = new DataTransfer()
       dt.items.add(file)
@@ -98,20 +92,20 @@ export default function CreateTournamentForm() {
     const form = e.currentTarget
     const nextErrors: FieldErrors = {}
 
-    const file = (form.poster as any)?.files?.[0] as File | undefined
+    const file = (form.poster as HTMLInputElement)?.files?.[0]
     const title = (form.title as any).value?.trim()
-    const city = (form.city as any).value?.trim()
-    const address = (form.address as any).value?.trim()
-    const dateVal = (form.date as any).value
-    const deadlineVal = (form.registration_deadline as any).value
+    const province = (form.province as HTMLSelectElement).value?.trim()
+    const address = (form.address as HTMLInputElement).value?.trim()
+    const dateVal = (form.date as HTMLInputElement).value
+    const deadlineVal = (form.registration_deadline as HTMLInputElement).value
 
     if (!file) nextErrors.poster = "El cartel es obligatorio."
     if (!title) nextErrors.title = "El título es obligatorio."
-    if (!city) nextErrors.city = "La ciudad es obligatoria."
+    if (!province) nextErrors.province = "La provincia es obligatoria."
     if (!address) nextErrors.address = "La dirección es obligatoria."
     if (!dateVal) nextErrors.date = "La fecha del torneo es obligatoria."
     if (!deadlineVal) nextErrors.registration_deadline = "La fecha límite es obligatoria."
-
+    
     if (dateVal && deadlineVal) {
       const date = new Date(dateVal)
       const deadline = new Date(deadlineVal)
@@ -128,19 +122,19 @@ export default function CreateTournamentForm() {
       const order: Field[] = [
         "poster",
         "title",
-        "city",
+        "province",
         "address",
         "date",
         "registration_deadline",
       ]
+
       const first = order.find((k) => nextErrors[k])
 
       if (first) {
         const map: Record<Field, HTMLElement | null> = {
-          // ✅ focus útil en el contenedor, no en el input hidden
           poster: posterBoxRef.current,
           title: titleRef.current,
-          city: cityRef.current,
+          province: provinceRef.current,
           address: addressRef.current,
           date: dateRef.current,
           registration_deadline: deadlineRef.current,
@@ -255,16 +249,27 @@ export default function CreateTournamentForm() {
         <div className="grid md:grid-cols-2 gap-6">
           <div>
             <label className="label">
-              Ciudad <span className="text-red-500">*</span>
+              Provincia <span className="text-red-500">*</span>
             </label>
-            <input
-              ref={cityRef}
-              name="city"
-              className={`input ${errors.city ? "input--error" : ""}`}
-              placeholder="Ciudad e instalación"
-              onChange={() => clearError("city")}
-            />
-            {errors.city && <p className="field-error">{errors.city}</p>}
+
+            <select
+              ref={provinceRef}
+              name="province"
+              defaultValue=""
+              className={`input ${errors.province ? "input--error" : ""}`}
+              onChange={() => clearError("province")}
+            >
+              <option value="" disabled>
+                Selecciona una provincia
+              </option>
+              {SPAIN_COMMUNITIES.map((community) => (
+                <option key={community} value={community}>
+                  {community}
+                </option>
+              ))}
+            </select>
+
+            {errors.province && <p className="field-error">{errors.province}</p>}
           </div>
 
           <div>

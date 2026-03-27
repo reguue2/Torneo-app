@@ -9,7 +9,6 @@ type Category = {
   min_participants: number
   max_participants: number | null
   start_at: string | null
-  city: string | null
   address: string | null
   prizes: string | null
 }
@@ -42,8 +41,7 @@ export default async function PublicarPage({
   if (tournament.has_categories) {
     const { data } = await supabase
       .from("categories")
-      .select("id,name,price,min_participants,max_participants,start_at,city,address,prizes")
-      .eq("tournament_id", id)
+      .select("id,name,price,min_participants,max_participants,start_at,address,prizes").eq("tournament_id", id)
       .order("name", { ascending: true })
 
     categories = (data as Category[]) || []
@@ -62,13 +60,13 @@ export default async function PublicarPage({
   const categoriesOk = !tournament.has_categories
     ? true
     : categories.length > 0 &&
-      categories.every(
-        (c) =>
-          typeof c.min_participants === "number" &&
-          c.min_participants > 0 &&
-          (c.max_participants === null ||
-            (typeof c.max_participants === "number" && c.max_participants >= c.min_participants))
-      )
+    categories.every(
+      (c) =>
+        typeof c.min_participants === "number" &&
+        c.min_participants > 0 &&
+        (c.max_participants === null ||
+          (typeof c.max_participants === "number" && c.max_participants >= c.min_participants))
+    )
 
   // =========================
   // ✅ Validación precio (solo sin categorías)
@@ -76,8 +74,8 @@ export default async function PublicarPage({
   const entryPriceOk = tournament.has_categories
     ? true
     : typeof tournament.entry_price === "number" &&
-      Number.isFinite(tournament.entry_price) &&
-      tournament.entry_price >= 0
+    Number.isFinite(tournament.entry_price) &&
+    tournament.entry_price >= 0
 
   // =========================
   // Validación premios

@@ -11,7 +11,6 @@ interface Category {
   min_participants: number
   max_participants: number | null
   start_at: string | null
-  city: string | null
   address: string | null
 }
 
@@ -21,7 +20,6 @@ type Field =
   | "min_participants"
   | "max_participants"
   | "start_at"
-  | "city"
   | "address"
 
 type FieldErrors = Partial<Record<Field, string>>
@@ -43,14 +41,12 @@ export default function CategoriesManager({
   const [customDate, setCustomDate] = useState(false)
   const [customLocation, setCustomLocation] = useState(false)
 
-  // ⚠️ inputs como string para permitir vacío (no inicializar números)
   const [form, setForm] = useState({
     name: "",
     price: "", // string
     min_participants: "", // string
     max_participants: "", // string
     start_at: "",
-    city: "",
     address: "",
   })
 
@@ -69,7 +65,6 @@ export default function CategoriesManager({
   const minRef = useRef<HTMLInputElement | null>(null)
   const maxRef = useRef<HTMLInputElement | null>(null)
   const dateRef = useRef<HTMLInputElement | null>(null)
-  const cityRef = useRef<HTMLInputElement | null>(null)
   const addressRef = useRef<HTMLInputElement | null>(null)
 
   const clearError = (field: Field) => {
@@ -133,7 +128,7 @@ export default function CategoriesManager({
   }
 
   const focusFirstError = (next: FieldErrors) => {
-    const order: Field[] = ["name", "price", "min_participants", "max_participants", "start_at", "city", "address"]
+    const order: Field[] = ["name", "price", "min_participants", "max_participants", "start_at", "address"]    
     const first = order.find((k) => next[k])
     if (!first) return
 
@@ -143,7 +138,6 @@ export default function CategoriesManager({
       min_participants: minRef.current,
       max_participants: maxRef.current,
       start_at: dateRef.current,
-      city: cityRef.current,
       address: addressRef.current,
     }
 
@@ -177,7 +171,6 @@ export default function CategoriesManager({
       min_participants: min,
       max_participants: max,
       start_at: customDate && form.start_at ? form.start_at : null,
-      city: customLocation && form.city.trim() ? form.city.trim() : null,
       address: customLocation && form.address.trim() ? form.address.trim() : null,
     }
 
@@ -203,7 +196,6 @@ export default function CategoriesManager({
       min_participants: "",
       max_participants: "",
       start_at: "",
-      city: "",
       address: "",
     })
     setNoMax(false)
@@ -462,8 +454,7 @@ export default function CategoriesManager({
                     const checked = e.target.checked
                     setCustomLocation(checked)
                     if (!checked) {
-                      setForm((p) => ({ ...p, city: "", address: "" }))
-                      clearError("city")
+                      setForm((p) => ({ ...p, address: "" }))
                       clearError("address")
                     }
                   }}
@@ -473,34 +464,18 @@ export default function CategoriesManager({
             </div>
 
             {customLocation && (
-              <div className="grid gap-4">
-                <div>
-                  <label className="label">Ciudad</label>
-                  <input
-                    ref={cityRef}
-                    className="input"
-                    value={form.city}
-                    placeholder="Ej: Logroño"
-                    onChange={(e) => {
-                      setForm({ ...form, city: e.target.value })
-                      clearError("city")
-                    }}
-                  />
-                </div>
-
-                <div>
-                  <label className="label">Dirección</label>
-                  <input
-                    ref={addressRef}
-                    className="input"
-                    value={form.address}
-                    placeholder="Ej: Calle Mayor 10"
-                    onChange={(e) => {
-                      setForm({ ...form, address: e.target.value })
-                      clearError("address")
-                    }}
-                  />
-                </div>
+              <div>
+                <label className="label">Dirección</label>
+                <input
+                  ref={addressRef}
+                  className="input"
+                  value={form.address}
+                  placeholder="Ej: Calle Mayor 10"
+                  onChange={(e) => {
+                    setForm({ ...form, address: e.target.value })
+                    clearError("address")
+                  }}
+                />
               </div>
             )}
           </div>
@@ -557,12 +532,8 @@ export default function CategoriesManager({
                     )}
                   </div>
 
-                  {(cat.city || cat.address) && (
-                    <p className="text-sm text-gray-500 mt-2">
-                      {cat.city ? `${cat.city}` : ""}
-                      {cat.city && cat.address ? " · " : ""}
-                      {cat.address ? `${cat.address}` : ""}
-                    </p>
+                  {cat.address && (
+                    <p className="text-sm text-gray-500 mt-2">{cat.address}</p>
                   )}
                 </div>
 
