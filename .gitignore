@@ -42,3 +42,6 @@ next-env.d.ts
 .env.local
 .supabase
 .env
+*.Zone.Identifier
+*Zone.Identifier
+*#Uf03aZone.Identifier

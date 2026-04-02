@@ -2,6 +2,16 @@ import { createServerClient } from "@supabase/ssr"
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 
+type SupabaseCookieOptions = {
+  path?: string
+  domain?: string
+  maxAge?: number
+  expires?: Date
+  httpOnly?: boolean
+  secure?: boolean
+  sameSite?: "lax" | "strict" | "none" | boolean
+}
+
 export async function GET(request: Request) {
   const searchParams = new URL(request.url).searchParams
   const origin = new URL(request.url).origin
@@ -18,10 +28,10 @@ export async function GET(request: Request) {
           get(name: string) {
             return cookieStore.get(name)?.value
           },
-          set(name: string, value: string, options: any) {
+          set(name: string, value: string, options: SupabaseCookieOptions) {
             cookieStore.set({ name, value, ...options })
           },
-          remove(name: string, options: any) {
+          remove(name: string, options: SupabaseCookieOptions) {
             cookieStore.set({ name, value: "", ...options })
           },
         },

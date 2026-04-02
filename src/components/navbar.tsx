@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import type { User } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase/client"
 import { useEffect, useState, useRef } from "react"
 
@@ -9,7 +10,7 @@ export default function Navbar() {
   const router = useRouter()
   const supabase = createClient()
 
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [open, setOpen] = useState(false)
 
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -17,7 +18,7 @@ export default function Navbar() {
   useEffect(() => {
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
     })
 
@@ -28,9 +29,8 @@ export default function Navbar() {
     return () => {
       subscription.unsubscribe()
     }
-  }, [])
+  }, [supabase.auth])
 
-  // Cerrar dropdown al hacer click fuera
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -68,21 +68,21 @@ export default function Navbar() {
           🏆 Organiza Torneo
         </Link>
 
-        <div className="hidden md:flex items-center gap-8 text-gray-600">
-          <Link href="/explorar" className="hover:text-black transition">
+        <div className="hidden items-center gap-8 text-gray-600 md:flex">
+          <Link href="/explorar" className="transition hover:text-black">
             Explorar Torneos
           </Link>
 
           <button
             onClick={() => handleProtectedRoute("/mis-torneos")}
-            className="hover:text-black transition"
+            className="transition hover:text-black"
           >
             Mis Torneos
           </button>
 
           <button
             onClick={() => handleProtectedRoute("/crear-torneo")}
-            className="hover:text-black transition"
+            className="transition hover:text-black"
           >
             Crear Torneo
           </button>
@@ -100,16 +100,16 @@ export default function Navbar() {
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setOpen(!open)}
-                className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center font-semibold"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-600 font-semibold text-white"
               >
                 {user.email?.charAt(0).toUpperCase()}
               </button>
 
               {open && (
-                <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                <div className="absolute right-0 mt-2 w-48 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
                   <button
                     onClick={handleLogout}
-                    className="w-full text-left px-4 py-3 text-sm hover:bg-gray-100 transition"
+                    className="w-full px-4 py-3 text-left text-sm transition hover:bg-gray-100"
                   >
                     Cerrar sesión
                   </button>

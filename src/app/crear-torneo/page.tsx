@@ -13,11 +13,11 @@ export default async function CrearTorneoPage() {
 
   return (
     <div className="container-custom py-16">
-      <h1 className="text-3xl font-bold mb-2">Crear Torneo</h1>
-      <p className="text-gray-600 mb-10">
-        Configura tu torneo y comienza a aceptar inscripciones
+      <h1 className="mb-2 text-3xl font-bold">Crear torneo</h1>
+      <p className="mb-10 max-w-3xl text-gray-600">
+        Este flujo ya no crea borradores en base de datos. Todo se prepara en cliente
+        y solo se persiste cuando pulsas publicar.
       </p>
-
       <CreateTournamentForm />
     </div>
   )

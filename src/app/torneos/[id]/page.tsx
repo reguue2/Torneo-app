@@ -3,6 +3,15 @@ import Image from "next/image"
 import { createClient } from "@/lib/supabase/server"
 import { notFound } from "next/navigation"
 import ShareButton from "./share-button"
+import {
+  formatDate,
+  formatMoney,
+  getPublicVisibilityLabel,
+  getRegistrationState,
+  getSidebarStatus,
+  paymentMethodLabel,
+} from "@/lib/tournaments/domain"
+import { runAutomaticStateSync } from "@/lib/tournaments/server"
 
 type Category = {
   id: string
@@ -36,77 +45,9 @@ type Tournament = {
   entry_price: number
 }
 
-function formatDate(value: string | null, withWeekday = false) {
-  if (!value) return "Por definir"
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "Por definir"
-
-  return date.toLocaleDateString("es-ES", {
-    weekday: withWeekday ? "long" : undefined,
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  })
-}
-
-function formatMoney(value: number | null | undefined) {
-  const amount = typeof value === "number" ? value : Number(value)
-  if (!Number.isFinite(amount)) return "—"
-  if (amount === 0) return "Gratis"
-
-  const text = Number.isInteger(amount)
-    ? String(amount)
-    : amount.toFixed(2).replace(/\.00$/, "")
-
-  return `${text}€`
-}
-
-function paymentMethodLabel(method: Tournament["payment_method"]) {
-  if (!method) return "Por definir"
-  if (method === "cash") return "Solo efectivo"
-  if (method === "online") return "Solo online"
-  return "Efectivo y online"
-}
-
-function getSidebarStatus(tournament: Tournament) {
-  if (tournament.status === "finished") {
-    return {
-      label: "Finalizado",
-      badge: "bg-gray-100 text-gray-700 border border-gray-200",
-    }
-  }
-
-  if (tournament.status === "cancelled") {
-    return {
-      label: "Cancelado",
-      badge: "bg-red-50 text-red-700 border border-red-200",
-    }
-  }
-
-  if (tournament.status === "closed") {
-    return {
-      label: "Cerrado",
-      badge: "bg-amber-50 text-amber-700 border border-amber-200",
-    }
-  }
-
-  const deadline = tournament.registration_deadline
-    ? new Date(tournament.registration_deadline)
-    : null
-
-  if (deadline && !Number.isNaN(deadline.getTime()) && deadline < new Date()) {
-    return {
-      label: "Inscripción cerrada",
-      badge: "bg-amber-50 text-amber-700 border border-amber-200",
-    }
-  }
-
-  return {
-    label: "Inscripción abierta",
-    badge: "bg-green-50 text-green-700 border border-green-200",
-  }
-}
+const VISIBLE_PUBLIC_STATUSES: Array<
+  "published" | "closed" | "finished" | "cancelled"
+> = ["published", "closed", "finished", "cancelled"]
 
 function getPriceSummary(tournament: Tournament, categories: Category[]) {
   if (!tournament.has_categories) {
@@ -136,7 +77,9 @@ function getCapacitySummary(tournament: Tournament, categories: Category[]) {
     return acc + category.max_participants
   }, 0)
 
-  const hasUnlimited = categories.some((category) => category.max_participants === null)
+  const hasUnlimited = categories.some(
+    (category) => category.max_participants === null
+  )
 
   if (hasUnlimited) return "Cupos por categoría"
 
@@ -155,7 +98,9 @@ export default async function TorneoPublicoPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
+
   const supabase = await createClient()
+  await runAutomaticStateSync(supabase)
 
   const { data: tournament, error } = await supabase
     .from("tournaments")
@@ -180,7 +125,7 @@ export default async function TorneoPublicoPage({
       entry_price
     `)
     .eq("id", id)
-    .eq("status", "published")
+    .in("status", VISIBLE_PUBLIC_STATUSES)
     .single()
 
   if (error || !tournament) {
@@ -199,15 +144,17 @@ export default async function TorneoPublicoPage({
     categories = (data as Category[]) ?? []
   }
 
-  const status = getSidebarStatus(tournament as Tournament)
   const tournamentData = tournament as Tournament
+  const status = getSidebarStatus(tournamentData)
+  const registrationState = getRegistrationState(tournamentData)
   const sharePath = `/torneos/${tournamentData.id}`
+  const registerPath = `/torneo/${tournamentData.id}/inscribirse`
 
   return (
     <div className="section-spacing">
       <div className="container-custom space-y-8">
         <div className="flex items-center gap-3 text-sm text-gray-500">
-          <Link href="/explorar" className="hover:text-gray-900 transition-colors">
+          <Link href="/explorar" className="transition-colors hover:text-gray-900">
             Explorar torneos
           </Link>
           <span>/</span>
@@ -266,7 +213,9 @@ export default async function TorneoPublicoPage({
 
             <section className="card divide-y divide-gray-100 p-0">
               <div className="p-6">
-                <h2 className="text-lg font-semibold text-gray-900">Detalles del torneo</h2>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Detalles del torneo
+                </h2>
               </div>
 
               <div className="grid gap-6 p-6">
@@ -282,13 +231,18 @@ export default async function TorneoPublicoPage({
                   <p className="text-sm font-medium text-gray-900">Fecha</p>
                   <p className="text-gray-600">{formatDate(tournamentData.date, true)}</p>
                   <p className="text-sm text-gray-500">
-                    Fecha límite de inscripción: {formatDate(tournamentData.registration_deadline)}
+                    Fecha límite de inscripción:{" "}
+                    {formatDate(tournamentData.registration_deadline)}
                   </p>
                 </div>
 
                 <div className="grid gap-2">
-                  <p className="text-sm font-medium text-gray-900">Cuota de inscripción</p>
-                  <p className="text-gray-600">{getPriceSummary(tournamentData, categories)}</p>
+                  <p className="text-sm font-medium text-gray-900">
+                    Cuota de inscripción
+                  </p>
+                  <p className="text-gray-600">
+                    {getPriceSummary(tournamentData, categories)}
+                  </p>
                   <p className="text-sm text-gray-500">
                     Método de pago: {paymentMethodLabel(tournamentData.payment_method)}
                   </p>
@@ -296,7 +250,9 @@ export default async function TorneoPublicoPage({
 
                 <div className="grid gap-2">
                   <p className="text-sm font-medium text-gray-900">Cupos</p>
-                  <p className="text-gray-600">{getCapacitySummary(tournamentData, categories)}</p>
+                  <p className="text-gray-600">
+                    {getCapacitySummary(tournamentData, categories)}
+                  </p>
                 </div>
 
                 {tournamentData.has_categories && (
@@ -323,7 +279,9 @@ export default async function TorneoPublicoPage({
                             key={category.id}
                             className="rounded-2xl border border-gray-200 p-4"
                           >
-                            <p className="font-medium text-gray-900">{category.name}</p>
+                            <p className="font-medium text-gray-900">
+                              {category.name}
+                            </p>
                             <p className="mt-1 whitespace-pre-wrap text-sm text-gray-600">
                               {category.prizes ?? "—"}
                             </p>
@@ -338,14 +296,20 @@ export default async function TorneoPublicoPage({
 
             {tournamentData.rules && (
               <section className="card space-y-4">
-                <h2 className="text-lg font-semibold text-gray-900">Reglas y normativa</h2>
-                <p className="whitespace-pre-wrap text-gray-600">{tournamentData.rules}</p>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Reglas y normativa
+                </h2>
+                <p className="whitespace-pre-wrap text-gray-600">
+                  {tournamentData.rules}
+                </p>
               </section>
             )}
 
             {tournamentData.has_categories && categories.length > 0 && (
               <section className="card space-y-5">
-                <h2 className="text-lg font-semibold text-gray-900">Categorías disponibles</h2>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Categorías disponibles
+                </h2>
 
                 <div className="grid gap-4">
                   {categories.map((category) => (
@@ -367,11 +331,9 @@ export default async function TorneoPublicoPage({
                                 ? `mín. ${category.min_participants} · sin máximo`
                                 : `mín. ${category.min_participants} · máx. ${category.max_participants}`}
                             </p>
-
                             {category.start_at && (
                               <p>Fecha/hora: {formatDate(category.start_at)}</p>
                             )}
-
                             {category.address && <p>Dirección: {category.address}</p>}
                           </div>
                         </div>
@@ -391,7 +353,7 @@ export default async function TorneoPublicoPage({
           </div>
 
           <aside className="space-y-4">
-            <div className="card space-y-5 sticky top-24">
+            <div className="card sticky top-24 space-y-5">
               <div className="space-y-2">
                 <p className="text-sm text-gray-500">Estado</p>
                 <span
@@ -408,27 +370,33 @@ export default async function TorneoPublicoPage({
                 </p>
               </div>
 
-              <button
-                type="button"
-                disabled
-                className="btn-primary w-full opacity-60 cursor-not-allowed"
-              >
-                Unirse al torneo
-              </button>
+              {registrationState.canJoin ? (
+                <Link href={registerPath} className="btn-primary w-full text-center">
+                  {registrationState.buttonLabel}
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="btn-primary w-full cursor-not-allowed opacity-60"
+                >
+                  {registrationState.buttonLabel}
+                </button>
+              )}
 
               <ShareButton path={sharePath} variant="full" />
 
-              <div className="border-t border-gray-100 pt-5 space-y-2">
+              <div className="space-y-2 border-t border-gray-100 pt-5">
                 <p className="text-sm text-gray-500">Visibilidad</p>
                 <p className="text-sm text-gray-700">
-                  {tournamentData.is_public ? "Torneo público" : "Torneo privado con acceso por enlace"}
+                  {getPublicVisibilityLabel(tournamentData.is_public)}
                 </p>
               </div>
 
-              <div className="border-t border-gray-100 pt-5 space-y-2">
+              <div className="space-y-2 border-t border-gray-100 pt-5">
                 <p className="text-sm text-gray-500">Inscripción</p>
                 <p className="text-sm text-gray-700">
-                  El flujo de inscripción se activará en la siguiente fase.
+                  {registrationState.message}
                 </p>
               </div>
             </div>

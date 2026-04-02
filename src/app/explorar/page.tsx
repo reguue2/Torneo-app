@@ -1,60 +1,41 @@
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
 import { SPAIN_COMMUNITIES, normalizeText } from "@/lib/spain"
+import {
+  formatDate,
+  formatMoney,
+  getExploreStatus,
+  paymentMethodLabel,
+} from "@/lib/tournaments/domain"
+import { runAutomaticStateSync } from "@/lib/tournaments/server"
+import type { Tables } from "@/types/database"
 
 type ExploreSearchParams = Promise<{
   q?: string
   province?: string
 }>
 
-type ExploreTournament = {
-  id: string
-  title: string
-  poster_url: string | null
-  province: string | null
-  date: string | null
-  registration_deadline: string | null
-  has_categories: boolean
-  min_participants: number
-  max_participants: number | null
-  entry_price: number
-  categories?: Array<{
-    id: string
-    name: string
-    price: number
-    min_participants: number
-    max_participants: number | null
-  }>
-}
+type ExploreCategory = Pick<
+  Tables<"categories">,
+  "id" | "name" | "price" | "min_participants" | "max_participants"
+>
 
-function formatDate(value: string | null) {
-  if (!value) return "Fecha por definir"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "Fecha por definir"
-  return date.toLocaleDateString("es-ES")
-}
-
-function formatMoney(value: number | null | undefined) {
-  const amount = typeof value === "number" ? value : Number(value)
-  if (!Number.isFinite(amount)) return "—"
-  if (amount === 0) return "Gratis"
-  return Number.isInteger(amount) ? `${amount}€` : `${amount.toFixed(2)}€`
-}
-
-function getTournamentStatus(deadline: string | null) {
-  if (!deadline) return { label: "Abierto", className: "bg-green-500 text-white" }
-
-  const deadlineDate = new Date(deadline)
-  if (Number.isNaN(deadlineDate.getTime())) {
-    return { label: "Abierto", className: "bg-green-500 text-white" }
-  }
-
-  const now = new Date()
-  if (deadlineDate < now) {
-    return { label: "Cerrado", className: "bg-red-500 text-white" }
-  }
-
-  return { label: "Abierto", className: "bg-green-500 text-white" }
+type ExploreTournament = Pick<
+  Tables<"tournaments">,
+  | "id"
+  | "title"
+  | "poster_url"
+  | "province"
+  | "date"
+  | "registration_deadline"
+  | "status"
+  | "has_categories"
+  | "min_participants"
+  | "max_participants"
+  | "entry_price"
+  | "payment_method"
+> & {
+  categories: ExploreCategory[] | null
 }
 
 function getPriceLabel(tournament: ExploreTournament) {
@@ -68,8 +49,7 @@ function getPriceLabel(tournament: ExploreTournament) {
 
   if (prices.length === 0) return "Por categoría"
 
-  const minPrice = Math.min(...prices)
-  return `Desde ${formatMoney(minPrice)}`
+  return `Desde ${formatMoney(Math.min(...prices))}`
 }
 
 function getCapacityLabel(tournament: ExploreTournament) {
@@ -79,7 +59,35 @@ function getCapacityLabel(tournament: ExploreTournament) {
       : `Mín. ${tournament.min_participants} · Máx. ${tournament.max_participants}`
   }
 
-  return "Cupos por categoría"
+  const categories = tournament.categories ?? []
+  if (categories.length === 0) return "Cupos por categoría"
+
+  const hasUnlimitedCategory = categories.some(
+    (category) => category.max_participants === null
+  )
+
+  if (hasUnlimitedCategory) {
+    return `${categories.length} categorías · cupos por categoría`
+  }
+
+  const totalMax = categories.reduce(
+    (acc, category) => acc + (category.max_participants ?? 0),
+    0
+  )
+
+  return `${categories.length} categorías · ${totalMax} plazas máx.`
+}
+
+function getStructureLabel(tournament: ExploreTournament) {
+  if (!tournament.has_categories) {
+    return "Inscripción general"
+  }
+
+  const categories = tournament.categories ?? []
+  if (categories.length === 0) return "Con categorías"
+  if (categories.length === 1) return `1 categoría: ${categories[0].name}`
+
+  return `${categories.length} categorías disponibles`
 }
 
 export default async function ExplorarPage({
@@ -90,6 +98,8 @@ export default async function ExplorarPage({
   const { q = "", province = "" } = await searchParams
   const supabase = await createClient()
 
+  await runAutomaticStateSync(supabase)
+
   let query = supabase
     .from("tournaments")
     .select(`
@@ -99,10 +109,12 @@ export default async function ExplorarPage({
       province,
       date,
       registration_deadline,
+      status,
       has_categories,
       min_participants,
       max_participants,
       entry_price,
+      payment_method,
       categories (
         id,
         name,
@@ -119,29 +131,43 @@ export default async function ExplorarPage({
     query = query.eq("province", province)
   }
 
-  const { data, error } = await query
+  const { data, error } = await query.returns<ExploreTournament[]>()
 
   if (error) {
     throw new Error(error.message)
   }
 
-  const tournaments = ((data ?? []) as ExploreTournament[]).filter((tournament) => {
-    if (!q.trim()) return true
-    return normalizeText(tournament.title).includes(normalizeText(q))
+  const normalizedQuery = normalizeText(q)
+
+  const tournaments = (data ?? []).filter((tournament) => {
+    if (!normalizedQuery) return true
+
+    const haystack = [
+      tournament.title,
+      tournament.province ?? "",
+      ...(tournament.categories ?? []).map((category) => category.name),
+    ]
+      .map((value) => normalizeText(value))
+      .join(" ")
+
+    return haystack.includes(normalizedQuery)
   })
 
   return (
     <div className="section-spacing">
       <div className="container-custom space-y-8">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight">Explorar Torneos</h1>
+        <div className="max-w-3xl">
+          <h1 className="text-4xl font-bold tracking-tight text-gray-900">
+            Explorar torneos
+          </h1>
           <p className="mt-3 text-lg text-gray-600">
-            Encuentra y únete a torneos locales en tu zona
+            Solo se muestran torneos públicos y publicados. Desde aquí la gente entra a la página
+            pública y, si procede, inicia la solicitud de inscripción.
           </p>
         </div>
 
         <form method="get" className="card p-4">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(240px,0.8fr)]">
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1.3fr)_minmax(240px,0.8fr)_auto]">
             <div>
               <label htmlFor="q" className="sr-only">
                 Buscar torneos
@@ -150,7 +176,7 @@ export default async function ExplorarPage({
                 id="q"
                 name="q"
                 defaultValue={q}
-                placeholder="Buscar torneos..."
+                placeholder="Buscar por torneo, provincia o categoría"
                 className="input"
               />
             </div>
@@ -166,90 +192,98 @@ export default async function ExplorarPage({
                 className="input"
               >
                 <option value="">Todas las provincias</option>
-                {SPAIN_COMMUNITIES.map((community) => (
-                  <option key={community} value={community}>
-                    {community}
+                {SPAIN_COMMUNITIES.map((provinceOption) => (
+                  <option key={provinceOption} value={provinceOption}>
+                    {provinceOption}
                   </option>
                 ))}
               </select>
             </div>
-          </div>
 
-          <div className="mt-4 flex items-center justify-between gap-4">
-            <p className="text-sm text-gray-500">
-              {tournaments.length} {tournaments.length === 1 ? "torneo encontrado" : "torneos encontrados"}
-            </p>
-
-            <div className="flex items-center gap-3">
-              {(q || province) && (
-                <Link href="/explorar" className="btn-secondary px-4 py-2">
-                  Limpiar
-                </Link>
-              )}
-
-              <button type="submit" className="btn-primary px-4 py-2">
-                Buscar
-              </button>
-            </div>
+            <button type="submit" className="btn-primary">
+              Filtrar
+            </button>
           </div>
         </form>
 
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-500">
+          <p>
+            {tournaments.length === 1
+              ? "1 torneo encontrado"
+              : `${tournaments.length} torneos encontrados`}
+          </p>
+          {(q || province) && (
+            <Link href="/explorar" className="font-medium text-indigo-600 hover:text-indigo-700">
+              Limpiar filtros
+            </Link>
+          )}
+        </div>
+
         {tournaments.length === 0 ? (
-          <div className="card text-center py-12">
-            <h2 className="text-xl font-semibold">No hay torneos que coincidan</h2>
-            <p className="mt-2 text-gray-600">
-              Prueba con otro nombre o quita el filtro de provincia.
+          <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center">
+            <h2 className="text-xl font-semibold text-gray-900">
+              No hay torneos para esos filtros
+            </h2>
+            <p className="mt-3 text-gray-600">
+              Prueba otra búsqueda o amplía la provincia. Aquí solo salen torneos públicos y
+              publicados.
             </p>
           </div>
         ) : (
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
             {tournaments.map((tournament) => {
-              const status = getTournamentStatus(tournament.registration_deadline)
+              const badge = getExploreStatus(tournament)
 
               return (
                 <article
                   key={tournament.id}
-                  className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md"
+                  className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                 >
-                  <div className="relative h-56 w-full overflow-hidden bg-gray-100">
+                  <div className="relative flex aspect-[16/10] items-center justify-center bg-gray-100">
                     {tournament.poster_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={tournament.poster_url}
                         alt={tournament.title}
                         className="h-full w-full object-cover"
                       />
                     ) : (
-                      <div className="flex h-full items-center justify-center text-sm text-gray-500">
-                        Sin cartel
-                      </div>
+                      <div className="text-sm text-gray-500">Sin cartel</div>
                     )}
-
-                    <span
-                      className={`absolute right-3 top-3 rounded-full px-3 py-1 text-xs font-semibold ${status.className}`}
-                    >
-                      {status.label}
-                    </span>
                   </div>
 
-                  <div className="space-y-4 p-5">
+                  <div className="space-y-5 p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}
+                      >
+                        {badge.label}
+                      </span>
+                      <span className="text-xs font-medium text-gray-500">
+                        {tournament.province ?? "Provincia por definir"}
+                      </span>
+                    </div>
+
                     <div>
-                      <h2 className="text-xl font-semibold text-gray-900 line-clamp-2">
+                      <h2 className="line-clamp-2 text-xl font-semibold tracking-tight text-gray-900">
                         {tournament.title}
                       </h2>
+                      <p className="mt-2 text-sm text-gray-500">{formatDate(tournament.date)}</p>
                     </div>
 
                     <div className="space-y-2 text-sm text-gray-600">
-                      <p>{tournament.province ?? "Ubicación por definir"}</p>
-                      <p>{formatDate(tournament.date)}</p>
+                      <p>{getStructureLabel(tournament)}</p>
                       <p>{getCapacityLabel(tournament)}</p>
                       <p>{getPriceLabel(tournament)}</p>
+                      <p>{paymentMethodLabel(tournament.payment_method)}</p>
+                      <p>Límite de inscripción: {formatDate(tournament.registration_deadline)}</p>
                     </div>
 
                     <Link
                       href={`/torneos/${tournament.id}`}
                       className="btn-primary block w-full text-center"
                     >
-                      Ver detalles
+                      Ver torneo
                     </Link>
                   </div>
                 </article>
