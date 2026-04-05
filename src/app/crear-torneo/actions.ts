@@ -41,10 +41,16 @@ const INITIAL_STATE: CreateTournamentActionState = {
   error: null,
 }
 
-type CreateAndPublishTournamentRpcArgs =
-  Database["public"]["Functions"]["create_and_publish_tournament"]["Args"] & {
-    p_categories: z.infer<typeof CategorySchema>[]
-  }
+type CreateAndPublishTournamentRpcArgs = Omit<
+  Database["public"]["Functions"]["create_and_publish_tournament"]["Args"],
+  "p_description" | "p_prizes" | "p_rules" | "p_max_participants" | "p_categories"
+> & {
+  p_description: string | null
+  p_prizes: string | null
+  p_rules: string | null
+  p_max_participants: number | null
+  p_categories: z.infer<typeof CategorySchema>[]
+}
 
 function parseBoolean(value: FormDataEntryValue | null) {
   return value === "true"
@@ -234,27 +240,29 @@ export async function createTournament(
 
   const posterUrl = publicUrlData.publicUrl
 
+  const rpcArgs: CreateAndPublishTournamentRpcArgs = {
+    p_title: title,
+    p_description: description || null,
+    p_poster_url: posterUrl,
+    p_province: province,
+    p_address: address,
+    p_date: date,
+    p_registration_deadline: registrationDeadline,
+    p_is_public: isPublic,
+    p_has_categories: hasCategories,
+    p_min_participants: validatedMinParticipants,
+    p_max_participants: maxParticipants,
+    p_payment_method: paymentMethod,
+    p_prize_mode: prizeMode,
+    p_prizes: prizes || null,
+    p_rules: rules || null,
+    p_entry_price: entryPrice,
+    p_categories: categories,
+  }
+
   const { data, error: rpcError } = await supabase.rpc(
     "create_and_publish_tournament",
-    {
-      p_title: title,
-      p_description: description || null,
-      p_poster_url: posterUrl,
-      p_province: province,
-      p_address: address,
-      p_date: date,
-      p_registration_deadline: registrationDeadline,
-      p_is_public: isPublic,
-      p_has_categories: hasCategories,
-      p_min_participants: validatedMinParticipants,
-      p_max_participants: maxParticipants,
-      p_payment_method: paymentMethod,
-      p_prize_mode: prizeMode,
-      p_prizes: prizes || null,
-      p_rules: rules || null,
-      p_entry_price: entryPrice,
-      p_categories: categories,
-    } satisfies CreateAndPublishTournamentRpcArgs
+    rpcArgs as unknown as Database["public"]["Functions"]["create_and_publish_tournament"]["Args"]
   )
 
   if (rpcError) {

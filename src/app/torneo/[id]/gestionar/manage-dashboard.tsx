@@ -3,7 +3,6 @@
 import Link from "next/link"
 import { useMemo, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
-
 import { createClient } from "@/lib/supabase/client"
 import type {
   CategoryRow,
@@ -58,6 +57,7 @@ function formatDateTime(value: string | null) {
   if (!value) return "—"
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return "—"
+
   return date.toLocaleString("es-ES", {
     day: "2-digit",
     month: "2-digit",
@@ -71,9 +71,11 @@ function formatMoney(value: number | null | undefined) {
   const amount = typeof value === "number" ? value : Number(value)
   if (!Number.isFinite(amount)) return "—"
   if (amount === 0) return "0€"
+
   const text = Number.isInteger(amount)
     ? String(amount)
     : amount.toFixed(2).replace(/\.00$/, "")
+
   return `${text}€`
 }
 
@@ -95,6 +97,7 @@ function getCapacityForTournament(tournament: TournamentRow, categories: Categor
   if (!tournament.has_categories) return tournament.max_participants
   if (categories.length === 0) return null
   if (categories.some((category) => category.max_participants === null)) return null
+
   return categories.reduce((acc, category) => acc + (category.max_participants ?? 0), 0)
 }
 
@@ -117,7 +120,24 @@ function isConfirmedRegistration(status: RegistrationStatus | null) {
   return status === "confirmed" || status === "paid"
 }
 
-function needsCashValidation(view: RegistrationView) {
+function hasTournamentStarted(tournament: TournamentRow) {
+  if (!tournament.date) return false
+
+  const date = new Date(tournament.date)
+  if (Number.isNaN(date.getTime())) return false
+
+  return date <= new Date()
+}
+
+function needsCashValidation(view: RegistrationView, tournament: TournamentRow) {
+  if (tournament.status !== "published" && tournament.status !== "closed") {
+    return false
+  }
+
+  if (hasTournamentStarted(tournament)) {
+    return false
+  }
+
   return (
     view.registration.payment_method === "cash" &&
     view.registration.status !== null &&
@@ -125,7 +145,15 @@ function needsCashValidation(view: RegistrationView) {
   )
 }
 
-function needsOnlineValidation(view: RegistrationView) {
+function needsOnlineValidation(view: RegistrationView, tournament: TournamentRow) {
+  if (tournament.status !== "published" && tournament.status !== "closed") {
+    return false
+  }
+
+  if (hasTournamentStarted(tournament)) {
+    return false
+  }
+
   return (
     view.registration.payment_method === "online" &&
     view.registration.status !== null &&
@@ -133,9 +161,12 @@ function needsOnlineValidation(view: RegistrationView) {
   )
 }
 
-function canCancelFromDashboard(status: RegistrationStatus | null) {
+function canCancelFromDashboard(status: RegistrationStatus | null, tournament: TournamentRow) {
   if (!status) return false
-  return CANCELLABLE_BY_ORGANIZER_STATUSES.includes(status)
+  if (!CANCELLABLE_BY_ORGANIZER_STATUSES.includes(status)) return false
+  if (tournament.status === "finished" || tournament.status === "cancelled") return false
+  if (hasTournamentStarted(tournament)) return false
+  return true
 }
 
 function getStatusBadge(status: TournamentStatus | null) {
@@ -159,7 +190,7 @@ function getStatusLabel(status: TournamentStatus | null) {
   if (status === "closed") return "Cerrado"
   if (status === "finished") return "Finalizado"
   if (status === "cancelled") return "Cancelado"
-  return "Borrador"
+  return "No publicado"
 }
 
 function getRegistrationStatusBadge(view: RegistrationView) {
@@ -185,18 +216,33 @@ function getRegistrationStatusBadge(view: RegistrationView) {
 }
 
 function getRegistrationStatusLabel(view: RegistrationView) {
-  if (view.registration.status === "confirmed") return "Confirmada"
-  if (view.registration.status === "paid") return "Pagada (legacy)"
+  if (view.registration.status === "confirmed" || view.registration.status === "paid") {
+    return "Confirmada"
+  }
+
   if (view.registration.status === "pending_cash_validation") {
     return "Pendiente de validación en efectivo"
   }
+
   if (view.registration.status === "pending_online_payment") {
     return "Pendiente de pago online"
   }
-  if (view.registration.status === "pending") return "Pendiente (legacy)"
+
+  if (view.registration.status === "pending") {
+    if (view.registration.payment_method === "cash") {
+      return "Pendiente de validación en efectivo"
+    }
+
+    if (view.registration.payment_method === "online") {
+      return "Pendiente de pago online"
+    }
+
+    return "Pendiente"
+  }
+
   if (view.registration.status === "expired") return "Caducada"
   if (view.registration.status === "cancelled") return "Cancelada"
-  if (view.registration.payment_method === "online") return "Pendiente online"
+  if (view.registration.payment_method === "online") return "Pendiente de pago online"
   return "Pendiente"
 }
 
@@ -206,11 +252,11 @@ function getPaymentMethodLabel(method: RegistrationRow["payment_method"]) {
   return "Por definir"
 }
 
-function getPaymentStatusLabel(view: RegistrationView) {
+function getPaymentStatusLabel(view: RegistrationView, tournament: TournamentRow) {
   if (view.payment?.status === "paid") return "Cobrado"
   if (view.payment?.status === "refunded") return "Reembolsado"
   if (view.payment?.status === "pending") return "Pendiente"
-  if (needsOnlineValidation(view)) return "Pendiente de confirmar"
+  if (needsOnlineValidation(view, tournament)) return "Pendiente de confirmar"
   return "Sin movimiento"
 }
 
@@ -253,6 +299,21 @@ function mapManagementError(message: string) {
   }
   if (message.includes("Expired registrations cannot be changed")) {
     return "No puedes cancelar inscripciones caducadas."
+  }
+  if (message.includes("Only published tournaments can be edited from this panel")) {
+    return "Solo puedes editar la configuración mientras el torneo siga publicado."
+  }
+  if (message.includes("Tournament already started")) {
+    return "Esta acción ya no está permitida porque el torneo ya ha comenzado."
+  }
+  if (message.includes("Tournament status does not allow cash approvals")) {
+    return "Solo puedes validar cobros en efectivo mientras el torneo esté publicado o cerrado y todavía no haya empezado."
+  }
+  if (message.includes("Tournament status does not allow online confirmations")) {
+    return "Solo puedes confirmar pagos online mientras el torneo esté publicado o cerrado y todavía no haya empezado."
+  }
+  if (message.includes("Only registrations before tournament start can be cancelled")) {
+    return "Solo puedes cancelar inscripciones antes de que empiece el torneo."
   }
   return message
 }
@@ -328,6 +389,7 @@ export default function ManageDashboard({
   const [busy, setBusy] = useState<string | null>(null)
   const [pageError, setPageError] = useState<string | null>(null)
   const [copyOk, setCopyOk] = useState(false)
+
   const [form, setForm] = useState<ConfigForm>({
     title: tournament.title,
     description: tournament.description ?? "",
@@ -351,11 +413,13 @@ export default function ManageDashboard({
 
   const paymentsByRegistration = useMemo(() => {
     const map = new Map<string, PaymentRow[]>()
+
     for (const payment of payments) {
       const current = map.get(payment.registration_id) ?? []
       current.push(payment)
       map.set(payment.registration_id, current)
     }
+
     return map
   }, [payments])
 
@@ -394,15 +458,18 @@ export default function ManageDashboard({
   const activeRegistrations = registrationViews.filter((view) =>
     isActiveRegistration(view.registration.status)
   )
+
   const confirmedRegistrations = activeRegistrations.filter((view) =>
     isConfirmedRegistration(view.registration.status)
   )
-  const pendingCashValidations = activeRegistrations.filter(
-    (view) =>
-      view.registration.status === "pending_cash_validation" ||
-      view.registration.status === "pending"
+
+  const pendingCashValidations = activeRegistrations.filter((view) =>
+    needsCashValidation(view, tournament)
   )
-  const pendingOnlinePayments = activeRegistrations.filter((view) => needsOnlineValidation(view))
+
+  const pendingOnlinePayments = activeRegistrations.filter((view) =>
+    needsOnlineValidation(view, tournament)
+  )
   const cancelledRegistrations = registrationViews.filter(
     (view) => view.registration.status === "cancelled"
   )
@@ -486,16 +553,21 @@ export default function ManageDashboard({
       return
     }
 
+    if (tournament.status !== "published") {
+      setPageError("Solo puedes editar la configuración mientras el torneo siga publicado.")
+      return
+    }
+
     setBusy("save-config")
 
     const payload = {
       title: form.title.trim(),
-      description: form.description.trim() || null,
-      rules: form.rules.trim() || null,
-      province: form.province.trim() || null,
-      address: form.address.trim() || null,
-      date: form.date || null,
-      registration_deadline: form.registration_deadline || null,
+      description: form.description.trim() || undefined,
+      rules: form.rules.trim() || undefined,
+      province: form.province.trim() || undefined,
+      address: form.address.trim() || undefined,
+      date: form.date || undefined,
+      registration_deadline: form.registration_deadline || undefined,
       is_public: form.is_public,
     }
 
@@ -514,7 +586,7 @@ export default function ManageDashboard({
     setBusy(null)
 
     if (error) {
-      setPageError(error.message)
+      setPageError(mapManagementError(error.message))
       return
     }
 
@@ -524,7 +596,7 @@ export default function ManageDashboard({
   const confirmCashRegistration = async (view: RegistrationView) => {
     setPageError(null)
 
-    if (!needsCashValidation(view)) {
+    if (!needsCashValidation(view, tournament)) {
       setPageError(
         "Solo puedes validar desde aquí inscripciones en efectivo pendientes de revisión."
       )
@@ -550,10 +622,8 @@ export default function ManageDashboard({
   const confirmOnlineRegistration = async (view: RegistrationView) => {
     setPageError(null)
 
-    if (!needsOnlineValidation(view)) {
-      setPageError(
-        "Solo puedes confirmar desde aquí inscripciones online que sigan pendientes."
-      )
+    if (!needsOnlineValidation(view, tournament)) {
+      setPageError("Solo puedes confirmar desde aquí inscripciones online que sigan pendientes.")
       return
     }
 
@@ -576,7 +646,7 @@ export default function ManageDashboard({
   const cancelRegistration = async (view: RegistrationView) => {
     setPageError(null)
 
-    if (!canCancelFromDashboard(view.registration.status)) {
+    if (!canCancelFromDashboard(view.registration.status, tournament)) {
       setPageError(
         "Solo puedes cancelar desde este panel inscripciones que todavía no estén caducadas ni canceladas."
       )
@@ -660,6 +730,7 @@ export default function ManageDashboard({
             </svg>
           }
         />
+
         <StatCard
           title="Confirmadas"
           value={String(confirmedRegistrations.length)}
@@ -670,6 +741,7 @@ export default function ManageDashboard({
             </svg>
           }
         />
+
         <StatCard
           title="Pendientes efectivo"
           value={String(pendingCashValidations.length)}
@@ -681,6 +753,7 @@ export default function ManageDashboard({
             </svg>
           }
         />
+
         <StatCard
           title="Pendientes online"
           value={String(pendingOnlinePayments.length)}
@@ -692,6 +765,7 @@ export default function ManageDashboard({
             </svg>
           }
         />
+
         <StatCard
           title="Ingresos cobrados"
           value={formatMoney(revenue)}
@@ -717,6 +791,7 @@ export default function ManageDashboard({
         >
           Inscripciones
         </button>
+
         <button
           type="button"
           onClick={() => setActiveTab("config")}
@@ -784,8 +859,8 @@ export default function ManageDashboard({
         >
           {pendingOnlinePayments.length > 0 && (
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-              Tienes inscripciones en <strong>pendiente de pago online</strong>. Mientras el
-              pago online siga simulado, puedes confirmarlas manualmente desde este panel.
+              Tienes inscripciones en <strong>pendiente de pago online</strong>. Mientras el pago
+              online siga simulado, puedes confirmarlas manualmente desde este panel.
             </div>
           )}
 
@@ -864,11 +939,13 @@ export default function ManageDashboard({
                                 <div className="font-medium text-gray-900">
                                   {view.participant?.display_name ?? "Participante eliminado"}
                                 </div>
+
                                 <div className="mt-1 text-xs text-gray-500">
                                   {view.participant?.type === "team"
                                     ? `Equipo${view.playersCount ? ` · ${view.playersCount} jugadores` : ""}`
                                     : "Individual"}
                                 </div>
+
                                 {view.category && (
                                   <div className="mt-1 text-xs text-gray-500">
                                     Categoría: {view.category.name}
@@ -891,6 +968,7 @@ export default function ManageDashboard({
                                 >
                                   {getRegistrationStatusLabel(view)}
                                 </div>
+
                                 {view.registration.cancelled_at && (
                                   <div className="mt-2 text-xs text-gray-500">
                                     Cancelada: {formatDateTime(view.registration.cancelled_at)}
@@ -901,8 +979,9 @@ export default function ManageDashboard({
                               <td className="px-5 py-4 align-top text-gray-600">
                                 <div>{getPaymentMethodLabel(view.registration.payment_method)}</div>
                                 <div className="mt-1 text-xs text-gray-500">
-                                  {formatMoney(view.amount)} · {getPaymentStatusLabel(view)}
+                                  {formatMoney(view.amount)} · {getPaymentStatusLabel(view, tournament)}
                                 </div>
+
                                 {view.payment?.paid_at && (
                                   <div className="mt-1 text-xs text-gray-500">
                                     Cobrado: {formatDateTime(view.payment.paid_at)}
@@ -920,7 +999,7 @@ export default function ManageDashboard({
 
                               <td className="px-5 py-4 align-top">
                                 <div className="flex flex-col items-end gap-2">
-                                  {needsCashValidation(view) && (
+                                  {needsCashValidation(view, tournament) && (
                                     <button
                                       type="button"
                                       onClick={() => confirmCashRegistration(view)}
@@ -933,7 +1012,7 @@ export default function ManageDashboard({
                                     </button>
                                   )}
 
-                                  {needsOnlineValidation(view) && (
+                                  {needsOnlineValidation(view, tournament) && (
                                     <button
                                       type="button"
                                       onClick={() => confirmOnlineRegistration(view)}
@@ -946,7 +1025,7 @@ export default function ManageDashboard({
                                     </button>
                                   )}
 
-                                  {canCancelFromDashboard(view.registration.status) && (
+                                  {canCancelFromDashboard(view.registration.status, tournament) && (
                                     <button
                                       type="button"
                                       onClick={() => cancelRegistration(view)}
@@ -1058,8 +1137,8 @@ export default function ManageDashboard({
                 <div>
                   <p className="font-medium text-gray-900">Visibilidad pública</p>
                   <p className="mt-1 text-sm text-gray-500">
-                    Si lo desactivas, el torneo no se listará en explorar y solo será accesible
-                    por enlace directo.
+                    Si lo desactivas, el torneo no se listará en explorar y solo será accesible por
+                    enlace directo.
                   </p>
                 </div>
 
@@ -1077,10 +1156,14 @@ export default function ManageDashboard({
                 <button
                   type="button"
                   onClick={saveConfig}
-                  disabled={busy === "save-config"}
+                  disabled={busy === "save-config" || tournament.status !== "published"}
                   className="btn-primary"
                 >
-                  {busy === "save-config" ? "Guardando..." : "Guardar cambios"}
+                  {busy === "save-config"
+                    ? "Guardando..."
+                    : tournament.status === "published"
+                      ? "Guardar cambios"
+                      : "Edición bloqueada"}
                 </button>
               </div>
             </div>
@@ -1088,37 +1171,43 @@ export default function ManageDashboard({
             <div className="space-y-4">
               <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                 <h3 className="text-lg font-semibold text-gray-900">Resumen operativo</h3>
+
                 <div className="mt-4 space-y-3 text-sm text-gray-600">
                   <p>
                     <span className="font-medium text-gray-900">Estado:</span>{" "}
                     {getStatusLabel(tournament.status)}
                   </p>
+
                   <p>
                     <span className="font-medium text-gray-900">Estructura:</span>{" "}
                     {tournament.has_categories ? "Con categorías" : "Sin categorías"}
                   </p>
+
                   <p>
                     <span className="font-medium text-gray-900">Cupos:</span>{" "}
                     {totalCapacity === null ? "Sin máximo" : `${totalCapacity} plazas`}
                   </p>
+
                   <p>
                     <span className="font-medium text-gray-900">Precio base:</span>{" "}
-                    {tournament.has_categories
-                      ? "Por categoría"
-                      : formatMoney(tournament.entry_price)}
+                    {tournament.has_categories ? "Por categoría" : formatMoney(tournament.entry_price)}
                   </p>
+
                   <p>
                     <span className="font-medium text-gray-900">Activas:</span>{" "}
                     {activeRegistrations.length}
                   </p>
+
                   <p>
                     <span className="font-medium text-gray-900">Pendientes efectivo:</span>{" "}
                     {pendingCashValidations.length}
                   </p>
+
                   <p>
                     <span className="font-medium text-gray-900">Pendientes online:</span>{" "}
                     {pendingOnlinePayments.length}
                   </p>
+
                   {pendingOnlinePayments.length > 0 && (
                     <p className="rounded-xl bg-blue-50 p-3 text-blue-900">
                       Mientras el pago online siga simulado, estas inscripciones se confirman
@@ -1131,6 +1220,7 @@ export default function ManageDashboard({
               {categories.length > 0 && (
                 <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                   <h3 className="text-lg font-semibold text-gray-900">Categorías</h3>
+
                   <div className="mt-4 space-y-3">
                     {categories.map((category) => (
                       <div

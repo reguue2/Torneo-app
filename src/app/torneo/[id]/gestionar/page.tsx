@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import ManageDashboard from "./manage-dashboard"
-import { runAutomaticStateSync } from "@/lib/tournaments/server"
 import type {
   CategoryRow,
   ParticipantRow,
@@ -23,8 +22,6 @@ export default async function GestionarTorneoPage({
   } = await supabase.auth.getUser()
 
   if (!user) redirect("/login")
-
-  await runAutomaticStateSync(supabase)
 
   const { data: tournament, error: tournamentError } = await supabase
     .from("tournaments")
@@ -54,7 +51,7 @@ export default async function GestionarTorneoPage({
   }
 
   if (tournament.status === "draft") {
-    redirect("/crear-torneo")
+    redirect("/mis-torneos")
   }
 
   const { data: categoriesData, error: categoriesError } = await supabase

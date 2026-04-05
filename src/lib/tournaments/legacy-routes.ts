@@ -29,7 +29,7 @@ export async function resolveLegacyTournamentRedirectPath(tournamentId: string) 
   }
 
   if (tournament.status === "draft") {
-    return "/crear-torneo"
+    return "/mis-torneos"
   }
 
   return `/torneo/${tournamentId}/gestionar`

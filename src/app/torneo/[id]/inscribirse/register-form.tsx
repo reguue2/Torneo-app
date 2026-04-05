@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
 import { formatMoney } from "@/lib/tournaments/domain"
 
 type Category = {
@@ -20,11 +19,11 @@ type RegistrationPaymentMethod = "cash" | "online"
 
 type RegistrationRequestResult = {
   request_id: string
-  verification_code: string
-  verification_token: string
   expires_at: string
   amount: number
   payment_method: RegistrationPaymentMethod
+  email_delivery_status: "pending_provider_configuration"
+  email_delivery_message: string
 }
 
 function isValidEmail(value: string) {
@@ -106,9 +105,6 @@ export default function RegisterForm({
   entryPrice: number
   paymentMethod: "cash" | "online" | "both" | null
 }) {
-  const supabase = createClient()
-  const isDevelopment = process.env.NODE_ENV !== "production"
-
   const [participantType, setParticipantType] = useState<ParticipantType>("team")
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<RegistrationPaymentMethod>(
     paymentMethod === "online" ? "online" : "cash"
@@ -135,27 +131,6 @@ export default function RegisterForm({
     }
     return Number(entryPrice)
   }, [hasCategories, selectedCategory, entryPrice])
-
-  const verifyUrl = useMemo(() => {
-    if (!requestResult) return ""
-
-    const params = new URLSearchParams({
-      request: requestResult.request_id,
-      token: requestResult.verification_token,
-    })
-
-    return `/inscripcion/verificar?${params.toString()}`
-  }, [requestResult])
-
-  const manualVerifyUrl = useMemo(() => {
-    if (!requestResult) return ""
-
-    const params = new URLSearchParams({
-      request: requestResult.request_id,
-    })
-
-    return `/inscripcion/verificar?${params.toString()}`
-  }, [requestResult])
 
   const validate = () => {
     if (hasCategories && !categoryId) {
@@ -222,25 +197,38 @@ export default function RegisterForm({
 
     setSubmitting(true)
 
-    const { data, error: rpcError } = await supabase.rpc("create_public_registration_request", {
-      p_tournament_id: tournamentId,
-      p_category_id: hasCategories ? categoryId || null : null,
-      p_participant_type: participantType,
-      p_display_name: displayName.trim(),
-      p_contact_phone: contactPhone.trim(),
-      p_contact_email: contactEmail.trim(),
-      p_players: buildPlayersPayload(),
-      p_payment_method: selectedPaymentMethod,
-    })
+    try {
+      const response = await fetch("/api/public-registration-requests", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          tournamentId,
+          categoryId: hasCategories ? categoryId || null : null,
+          participantType,
+          displayName: displayName.trim(),
+          contactPhone: contactPhone.trim(),
+          contactEmail: contactEmail.trim(),
+          players: buildPlayersPayload(),
+          paymentMethod: selectedPaymentMethod,
+        }),
+      })
 
-    setSubmitting(false)
+      const payload: RegistrationRequestResult | { error?: string } = await response.json()
 
-    if (rpcError) {
-      setError(mapErrorMessage(rpcError.message))
-      return
+      if (!response.ok) {
+        const message = "error" in payload ? payload.error : undefined
+        setError(mapErrorMessage(message ?? "No se pudo crear la solicitud."))
+        return
+      }
+
+      setRequestResult(payload as RegistrationRequestResult)
+    } catch {
+      setError("No se pudo crear la solicitud de inscripción.")
+    } finally {
+      setSubmitting(false)
     }
-
-    setRequestResult(data as RegistrationRequestResult)
   }
 
   if (requestResult) {
@@ -249,11 +237,10 @@ export default function RegisterForm({
     return (
       <div className="space-y-5">
         <div className="rounded-2xl border border-green-200 bg-green-50 p-5">
-          <h3 className="text-lg font-semibold text-green-800">
-            Solicitud creada
-          </h3>
+          <h3 className="text-lg font-semibold text-green-800">Solicitud creada</h3>
           <p className="mt-2 text-sm text-green-700">
-            Hemos preparado tu solicitud de inscripción. El siguiente paso es validar el email antes de crear la inscripción real.
+            Hemos preparado tu solicitud de inscripción. El siguiente paso es validar el
+            email antes de crear la inscripción real.
           </p>
           <p className="mt-2 text-sm text-green-700">
             Caduca el {formatDateTime(requestResult.expires_at)}.
@@ -262,20 +249,17 @@ export default function RegisterForm({
 
         <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm text-gray-700">
           <p>
-            <span className="font-medium text-gray-900">Torneo:</span>{" "}
-            {tournamentTitle}
+            <span className="font-medium text-gray-900">Torneo:</span> {tournamentTitle}
           </p>
           <p className="mt-2">
             <span className="font-medium text-gray-900">Inscripción:</span>{" "}
             {participantType === "team" ? "Equipo" : "Individual"}
           </p>
           <p className="mt-2">
-            <span className="font-medium text-gray-900">Nombre:</span>{" "}
-            {displayName}
+            <span className="font-medium text-gray-900">Nombre:</span> {displayName}
           </p>
           <p className="mt-2">
-            <span className="font-medium text-gray-900">Email:</span>{" "}
-            {contactEmail}
+            <span className="font-medium text-gray-900">Email:</span> {contactEmail}
           </p>
           <p className="mt-2">
             <span className="font-medium text-gray-900">Importe:</span>{" "}
@@ -295,44 +279,26 @@ export default function RegisterForm({
           </p>
         </div>
 
-        <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5 text-sm text-indigo-900">
-          <p className="font-semibold">Verificación del email</p>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          <p className="font-semibold">Correo de verificación pendiente de integración</p>
+          <p className="mt-2">{requestResult.email_delivery_message}</p>
           <p className="mt-2">
-            En el flujo final esto se enviará por correo. Ahora mismo puedes validar con el enlace directo o entrar en la página de validación manual y pegar el código.
+            La parte sensible ya no sale al navegador. Hasta conectar el proveedor de correo,
+            este flujo no puede completarse desde el cliente final.
           </p>
-
-          {isDevelopment && (
-            <div className="mt-4 space-y-3 rounded-xl border border-indigo-200 bg-white p-4 text-sm">
-              <p>
-                <span className="font-medium">Código de verificación:</span>{" "}
-                {requestResult.verification_code}
-              </p>
-              <p className="break-all">
-                <span className="font-medium">Enlace de verificación:</span>{" "}
-                {verifyUrl}
-              </p>
-            </div>
+          {process.env.NODE_ENV !== "production" && (
+            <p className="mt-2">
+              En desarrollo puedes revisar el log del servidor para depurar el enlace y el
+              código de verificación sin exponerlos en la interfaz.
+            </p>
           )}
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-          <Link href={verifyUrl} className="btn-primary text-center">
-            Validar con enlace
-          </Link>
-          <Link href={manualVerifyUrl} className="btn-secondary text-center">
-            Validar con código
-          </Link>
-          <Link
-            href={`/torneos/${tournamentId}`}
-            className="btn-secondary text-center"
-          >
+          <Link href={`/torneos/${tournamentId}`} className="btn-secondary text-center">
             Volver al torneo
           </Link>
-          <button
-            type="button"
-            onClick={resetForm}
-            className="btn-secondary"
-          >
+          <button type="button" onClick={resetForm} className="btn-secondary">
             Crear otra solicitud
           </button>
         </div>
@@ -349,11 +315,10 @@ export default function RegisterForm({
       )}
 
       <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-        <p className="text-sm font-medium text-gray-900">
-          Método de inscripción
-        </p>
+        <p className="text-sm font-medium text-gray-900">Método de inscripción</p>
         <p className="mt-1 text-sm text-gray-600">
-          Primero creas una solicitud, validas el email y solo entonces se genera la inscripción real.
+          Primero creas una solicitud y solo después, cuando el email esté verificado, se
+          genera la inscripción real.
         </p>
       </div>
 
@@ -373,9 +338,7 @@ export default function RegisterForm({
             }`}
           >
             <p className="font-medium text-gray-900">Individual</p>
-            <p className="mt-1 text-sm text-gray-500">
-              Inscripción para una sola persona.
-            </p>
+            <p className="mt-1 text-sm text-gray-500">Inscripción para una sola persona.</p>
           </button>
 
           <button
@@ -465,9 +428,7 @@ export default function RegisterForm({
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           placeholder={
-            participantType === "team"
-              ? "Ej: FC Warriors"
-              : "Ej: Diego Martínez"
+            participantType === "team" ? "Ej: FC Warriors" : "Ej: Diego Martínez"
           }
         />
       </div>
@@ -486,8 +447,8 @@ export default function RegisterForm({
             placeholder="Ej: 5"
           />
           <p className="mt-2 text-xs text-gray-500">
-            De momento solo pedimos la cantidad. Los nombres de jugadores no se
-            solicitan en esta fase.
+            De momento solo pedimos la cantidad. Los nombres de jugadores no se solicitan en
+            esta fase.
           </p>
         </div>
       )}
@@ -533,17 +494,22 @@ export default function RegisterForm({
           <div className="text-right text-sm text-gray-500">
             {amount !== null && Number(amount) <= 0 ? (
               <p>Inscripción gratuita</p>
+            ) : selectedPaymentMethod === "cash" ? (
+              <p>Pago en efectivo con validación manual</p>
             ) : (
-              <p>{selectedPaymentMethod === "cash" ? "Pago en efectivo" : "Pago online"}</p>
+              <p>Pago online pendiente de integración completa</p>
             )}
           </div>
         </div>
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex flex-col gap-3 sm:flex-row">
         <button type="submit" disabled={submitting} className="btn-primary">
-          {submitting ? "Creando solicitud..." : "Continuar con la validación"}
+          {submitting ? "Creando solicitud..." : "Crear solicitud"}
         </button>
+        <Link href={`/torneos/${tournamentId}`} className="btn-secondary text-center">
+          Volver al torneo
+        </Link>
       </div>
     </form>
   )

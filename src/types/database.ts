@@ -7,6 +7,8 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
@@ -14,37 +16,40 @@ export type Database = {
     Tables: {
       categories: {
         Row: {
+          address: string | null
           id: string
-          tournament_id: string
+          max_participants: number | null
+          min_participants: number
           name: string
           price: number
-          min_participants: number
-          max_participants: number | null
-          start_at: string | null
-          address: string | null
           prizes: string | null
+          start_at: string | null
+          tournament_id: string
+          updated_at: string
         }
         Insert: {
+          address?: string | null
           id?: string
-          tournament_id: string
+          max_participants?: number | null
+          min_participants?: number
           name: string
           price: number
-          min_participants?: number
-          max_participants?: number | null
-          start_at?: string | null
-          address?: string | null
           prizes?: string | null
+          start_at?: string | null
+          tournament_id: string
+          updated_at?: string
         }
         Update: {
+          address?: string | null
           id?: string
-          tournament_id?: string
+          max_participants?: number | null
+          min_participants?: number
           name?: string
           price?: number
-          min_participants?: number
-          max_participants?: number | null
-          start_at?: string | null
-          address?: string | null
           prizes?: string | null
+          start_at?: string | null
+          tournament_id?: string
+          updated_at?: string
         }
         Relationships: [
           {
@@ -58,70 +63,76 @@ export type Database = {
       }
       participants: {
         Row: {
-          id: string
-          type: Database["public"]["Enums"]["participant_type"]
-          display_name: string
-          contact_phone: string
           contact_email: string | null
-          players: Json | null
+          contact_phone: string
           created_at: string
+          display_name: string
+          id: string
+          players: Json | null
           source_registration_id: string | null
+          type: Database["public"]["Enums"]["participant_type"]
         }
         Insert: {
-          id?: string
-          type: Database["public"]["Enums"]["participant_type"]
-          display_name: string
-          contact_phone: string
           contact_email?: string | null
-          players?: Json | null
+          contact_phone: string
           created_at?: string
+          display_name: string
+          id?: string
+          players?: Json | null
           source_registration_id?: string | null
+          type: Database["public"]["Enums"]["participant_type"]
         }
         Update: {
-          id?: string
-          type?: Database["public"]["Enums"]["participant_type"]
-          display_name?: string
-          contact_phone?: string
           contact_email?: string | null
-          players?: Json | null
+          contact_phone?: string
           created_at?: string
+          display_name?: string
+          id?: string
+          players?: Json | null
           source_registration_id?: string | null
+          type?: Database["public"]["Enums"]["participant_type"]
         }
         Relationships: []
       }
       payments: {
         Row: {
-          id: string
-          registration_id: string
           amount: number
+          created_at: string | null
           currency: string | null
-          payment_method: Database["public"]["Enums"]["registration_payment_method"] | null
+          id: string
+          paid_at: string | null
+          payment_method:
+            | Database["public"]["Enums"]["registration_payment_method"]
+            | null
+          registration_id: string
           status: Database["public"]["Enums"]["payment_status"] | null
           stripe_payment_intent_id: string | null
-          paid_at: string | null
-          created_at: string | null
         }
         Insert: {
-          id?: string
-          registration_id: string
           amount: number
+          created_at?: string | null
           currency?: string | null
-          payment_method?: Database["public"]["Enums"]["registration_payment_method"] | null
+          id?: string
+          paid_at?: string | null
+          payment_method?:
+            | Database["public"]["Enums"]["registration_payment_method"]
+            | null
+          registration_id: string
           status?: Database["public"]["Enums"]["payment_status"] | null
           stripe_payment_intent_id?: string | null
-          paid_at?: string | null
-          created_at?: string | null
         }
         Update: {
-          id?: string
-          registration_id?: string
           amount?: number
+          created_at?: string | null
           currency?: string | null
-          payment_method?: Database["public"]["Enums"]["registration_payment_method"] | null
+          id?: string
+          paid_at?: string | null
+          payment_method?:
+            | Database["public"]["Enums"]["registration_payment_method"]
+            | null
+          registration_id?: string
           status?: Database["public"]["Enums"]["payment_status"] | null
           stripe_payment_intent_id?: string | null
-          paid_at?: string | null
-          created_at?: string | null
         }
         Relationships: [
           {
@@ -135,64 +146,64 @@ export type Database = {
       }
       registration_requests: {
         Row: {
-          id: string
-          tournament_id: string
           category_id: string | null
-          participant_type: Database["public"]["Enums"]["participant_type"]
-          display_name: string
-          contact_phone: string
-          contact_phone_normalized: string
+          consumed_at: string | null
           contact_email: string
           contact_email_normalized: string
-          players: Json | null
+          contact_phone: string
+          contact_phone_normalized: string
+          created_at: string
+          display_name: string
+          expires_at: string
+          id: string
+          participant_type: Database["public"]["Enums"]["participant_type"]
           payment_method: Database["public"]["Enums"]["registration_payment_method"]
+          players: Json | null
+          registration_id: string | null
+          tournament_id: string
           verification_code_hash: string
           verification_token_hash: string
-          expires_at: string
           verified_at: string | null
-          consumed_at: string | null
-          registration_id: string | null
-          created_at: string
         }
         Insert: {
-          id?: string
-          tournament_id: string
           category_id?: string | null
-          participant_type: Database["public"]["Enums"]["participant_type"]
-          display_name: string
-          contact_phone: string
-          contact_phone_normalized: string
+          consumed_at?: string | null
           contact_email: string
           contact_email_normalized: string
-          players?: Json | null
+          contact_phone: string
+          contact_phone_normalized: string
+          created_at?: string
+          display_name: string
+          expires_at: string
+          id?: string
+          participant_type: Database["public"]["Enums"]["participant_type"]
           payment_method: Database["public"]["Enums"]["registration_payment_method"]
+          players?: Json | null
+          registration_id?: string | null
+          tournament_id: string
           verification_code_hash: string
           verification_token_hash: string
-          expires_at: string
           verified_at?: string | null
-          consumed_at?: string | null
-          registration_id?: string | null
-          created_at?: string
         }
         Update: {
-          id?: string
-          tournament_id?: string
           category_id?: string | null
-          participant_type?: Database["public"]["Enums"]["participant_type"]
-          display_name?: string
-          contact_phone?: string
-          contact_phone_normalized?: string
+          consumed_at?: string | null
           contact_email?: string
           contact_email_normalized?: string
-          players?: Json | null
+          contact_phone?: string
+          contact_phone_normalized?: string
+          created_at?: string
+          display_name?: string
+          expires_at?: string
+          id?: string
+          participant_type?: Database["public"]["Enums"]["participant_type"]
           payment_method?: Database["public"]["Enums"]["registration_payment_method"]
+          players?: Json | null
+          registration_id?: string | null
+          tournament_id?: string
           verification_code_hash?: string
           verification_token_hash?: string
-          expires_at?: string
           verified_at?: string | null
-          consumed_at?: string | null
-          registration_id?: string | null
-          created_at?: string
         }
         Relationships: [
           {
@@ -220,49 +231,55 @@ export type Database = {
       }
       registrations: {
         Row: {
-          id: string
-          category_id: string | null
-          tournament_id: string
-          participant_id: string
-          status: Database["public"]["Enums"]["registration_status"] | null
-          payment_method: Database["public"]["Enums"]["registration_payment_method"] | null
-          created_at: string | null
-          public_reference: string | null
-          contact_email_normalized: string | null
-          contact_phone_normalized: string | null
           cancel_code_hash: string | null
           cancel_token_hash: string | null
           cancelled_at: string | null
+          category_id: string | null
+          contact_email_normalized: string | null
+          contact_phone_normalized: string | null
+          created_at: string | null
+          id: string
+          participant_id: string
+          payment_method:
+            | Database["public"]["Enums"]["registration_payment_method"]
+            | null
+          public_reference: string | null
+          status: Database["public"]["Enums"]["registration_status"] | null
+          tournament_id: string
         }
         Insert: {
-          id?: string
-          category_id?: string | null
-          tournament_id: string
-          participant_id: string
-          status?: Database["public"]["Enums"]["registration_status"] | null
-          payment_method?: Database["public"]["Enums"]["registration_payment_method"] | null
-          created_at?: string | null
-          public_reference?: string | null
-          contact_email_normalized?: string | null
-          contact_phone_normalized?: string | null
           cancel_code_hash?: string | null
           cancel_token_hash?: string | null
           cancelled_at?: string | null
+          category_id?: string | null
+          contact_email_normalized?: string | null
+          contact_phone_normalized?: string | null
+          created_at?: string | null
+          id?: string
+          participant_id: string
+          payment_method?:
+            | Database["public"]["Enums"]["registration_payment_method"]
+            | null
+          public_reference?: string | null
+          status?: Database["public"]["Enums"]["registration_status"] | null
+          tournament_id: string
         }
         Update: {
-          id?: string
-          category_id?: string | null
-          tournament_id?: string
-          participant_id?: string
-          status?: Database["public"]["Enums"]["registration_status"] | null
-          payment_method?: Database["public"]["Enums"]["registration_payment_method"] | null
-          created_at?: string | null
-          public_reference?: string | null
-          contact_email_normalized?: string | null
-          contact_phone_normalized?: string | null
           cancel_code_hash?: string | null
           cancel_token_hash?: string | null
           cancelled_at?: string | null
+          category_id?: string | null
+          contact_email_normalized?: string | null
+          contact_phone_normalized?: string | null
+          created_at?: string | null
+          id?: string
+          participant_id?: string
+          payment_method?:
+            | Database["public"]["Enums"]["registration_payment_method"]
+            | null
+          public_reference?: string | null
+          status?: Database["public"]["Enums"]["registration_status"] | null
+          tournament_id?: string
         }
         Relationships: [
           {
@@ -290,72 +307,78 @@ export type Database = {
       }
       tournaments: {
         Row: {
-          id: string
-          organizer_id: string
-          title: string
-          description: string | null
-          poster_url: string | null
-          prizes: string | null
-          rules: string | null
-          province: string | null
           address: string | null
+          created_at: string | null
           date: string | null
+          description: string | null
+          entry_price: number
+          has_categories: boolean
+          id: string
+          is_public: boolean | null
           max_participants: number | null
           min_participants: number
-          registration_deadline: string | null
-          payment_method: Database["public"]["Enums"]["payment_method_enum"] | null
-          is_public: boolean | null
-          status: Database["public"]["Enums"]["tournament_status"] | null
-          created_at: string | null
-          has_categories: boolean
+          organizer_id: string
+          payment_method:
+            | Database["public"]["Enums"]["payment_method_enum"]
+            | null
+          poster_url: string | null
           prize_mode: Database["public"]["Enums"]["prize_mode"]
-          entry_price: number
+          prizes: string | null
+          province: string | null
+          registration_deadline: string | null
+          rules: string | null
+          status: Database["public"]["Enums"]["tournament_status"] | null
+          title: string
           updated_at: string
         }
         Insert: {
-          id?: string
-          organizer_id: string
-          title: string
-          description?: string | null
-          poster_url?: string | null
-          prizes?: string | null
-          rules?: string | null
-          province?: string | null
           address?: string | null
+          created_at?: string | null
           date?: string | null
+          description?: string | null
+          entry_price?: number
+          has_categories: boolean
+          id?: string
+          is_public?: boolean | null
           max_participants?: number | null
           min_participants?: number
-          registration_deadline?: string | null
-          payment_method?: Database["public"]["Enums"]["payment_method_enum"] | null
-          is_public?: boolean | null
-          status?: Database["public"]["Enums"]["tournament_status"] | null
-          created_at?: string | null
-          has_categories: boolean
+          organizer_id: string
+          payment_method?:
+            | Database["public"]["Enums"]["payment_method_enum"]
+            | null
+          poster_url?: string | null
           prize_mode?: Database["public"]["Enums"]["prize_mode"]
-          entry_price?: number
+          prizes?: string | null
+          province?: string | null
+          registration_deadline?: string | null
+          rules?: string | null
+          status?: Database["public"]["Enums"]["tournament_status"] | null
+          title: string
           updated_at?: string
         }
         Update: {
-          id?: string
-          organizer_id?: string
-          title?: string
-          description?: string | null
-          poster_url?: string | null
-          prizes?: string | null
-          rules?: string | null
-          province?: string | null
           address?: string | null
+          created_at?: string | null
           date?: string | null
+          description?: string | null
+          entry_price?: number
+          has_categories?: boolean
+          id?: string
+          is_public?: boolean | null
           max_participants?: number | null
           min_participants?: number
-          registration_deadline?: string | null
-          payment_method?: Database["public"]["Enums"]["payment_method_enum"] | null
-          is_public?: boolean | null
-          status?: Database["public"]["Enums"]["tournament_status"] | null
-          created_at?: string | null
-          has_categories?: boolean
+          organizer_id?: string
+          payment_method?:
+            | Database["public"]["Enums"]["payment_method_enum"]
+            | null
+          poster_url?: string | null
           prize_mode?: Database["public"]["Enums"]["prize_mode"]
-          entry_price?: number
+          prizes?: string | null
+          province?: string | null
+          registration_deadline?: string | null
+          rules?: string | null
+          status?: Database["public"]["Enums"]["tournament_status"] | null
+          title?: string
           updated_at?: string
         }
         Relationships: [
@@ -370,148 +393,140 @@ export type Database = {
       }
       users: {
         Row: {
-          id: string
+          created_at: string | null
           email: string
+          id: string
           name: string | null
           phone: string | null
           stripe_account_id: string | null
-          created_at: string | null
         }
         Insert: {
-          id: string
+          created_at?: string | null
           email: string
+          id: string
           name?: string | null
           phone?: string | null
           stripe_account_id?: string | null
-          created_at?: string | null
         }
         Update: {
-          id?: string
+          created_at?: string | null
           email?: string
+          id?: string
           name?: string | null
           phone?: string | null
           stripe_account_id?: string | null
-          created_at?: string | null
         }
         Relationships: []
       }
     }
-    Views: { [_ in never]: never }
+    Views: {
+      [_ in never]: never
+    }
     Functions: {
-      apply_automatic_state_transitions: {
-        Args: Record<PropertyKey, never>
-        Returns: {
-          finished_tournaments: number
-          closed_tournaments: number
-          expired_online_registrations: number
-          deleted_open_requests: number
-          deleted_consumed_requests: number
-        }
-      }
-      cancel_pending_registration_by_organizer: {
+      apply_automatic_state_transitions: { Args: never; Returns: Json }
+      approve_cash_registration: {
         Args: { p_registration_id: string }
-        Returns: {
-          registration_id: string
-          status: "cancelled"
-        }
+        Returns: Json
       }
       cancel_public_registration: {
         Args: {
+          p_cancel_code?: string
+          p_cancel_token?: string
           p_public_reference: string
-          p_cancel_code?: string | null
-          p_cancel_token?: string | null
         }
-        Returns: {
-          already_cancelled: boolean
-          public_reference: string | null
-          status: "cancelled"
-        }
+        Returns: Json
       }
+      cancel_registration_by_organizer: {
+        Args: { p_registration_id: string }
+        Returns: Json
+      }
+      cleanup_old_drafts: { Args: { days_old?: number }; Returns: number }
       create_and_publish_tournament: {
         Args: {
-          p_title: string
-          p_description: string | null
-          p_poster_url: string
-          p_province: string
           p_address: string
-          p_date: string
-          p_registration_deadline: string
-          p_is_public: boolean
-          p_has_categories: boolean
-          p_min_participants: number
-          p_max_participants: number | null
-          p_payment_method: Database["public"]["Enums"]["payment_method_enum"]
-          p_prize_mode: Database["public"]["Enums"]["prize_mode"]
-          p_prizes: string | null
-          p_rules: string | null
-          p_entry_price: number
           p_categories?: Json
+          p_date: string
+          p_description: string
+          p_entry_price: number
+          p_has_categories: boolean
+          p_is_public: boolean
+          p_max_participants: number
+          p_min_participants: number
+          p_payment_method: Database["public"]["Enums"]["payment_method_enum"]
+          p_poster_url: string
+          p_prize_mode: Database["public"]["Enums"]["prize_mode"]
+          p_prizes: string
+          p_province: string
+          p_registration_deadline: string
+          p_rules: string
+          p_title: string
+        }
+        Returns: string
+      }
+      create_public_registration: {
+        Args: {
+          p_category_id?: string
+          p_contact_email?: string
+          p_contact_phone: string
+          p_display_name: string
+          p_participant_type: Database["public"]["Enums"]["participant_type"]
+          p_payment_method?: Database["public"]["Enums"]["registration_payment_method"]
+          p_players?: Json
+          p_tournament_id: string
         }
         Returns: string
       }
       create_public_registration_request: {
         Args: {
-          p_tournament_id: string
-          p_participant_type: Database["public"]["Enums"]["participant_type"]
-          p_display_name: string
+          p_category_id?: string
+          p_contact_email?: string
           p_contact_phone: string
-          p_category_id?: string | null
-          p_contact_email?: string | null
-          p_players?: Json | null
+          p_display_name: string
+          p_participant_type: Database["public"]["Enums"]["participant_type"]
           p_payment_method?: Database["public"]["Enums"]["registration_payment_method"]
+          p_players?: Json
+          p_tournament_id: string
         }
-        Returns: {
-          request_id: string
-          verification_code: string
-          verification_token: string
-          expires_at: string
-          amount: number
-          payment_method: Database["public"]["Enums"]["registration_payment_method"]
-        }
+        Returns: Json
       }
-      mark_cash_registration_paid: {
-        Args: { p_registration_id: string }
-        Returns: {
-          registration_id: string
-          status: "confirmed"
-          amount: number
-        }
-      }
+      generate_public_reference: { Args: never; Returns: string }
       mark_online_registration_paid: {
         Args: { p_registration_id: string }
-        Returns: {
-          registration_id: string
-          status: "confirmed"
-          amount: number
-        }
+        Returns: Json
       }
-      publish_tournament: {
-        Args: { p_tournament_id: string }
-        Returns: string
-      }
+      normalize_email: { Args: { p_email: string }; Returns: string }
+      normalize_phone: { Args: { p_phone: string }; Returns: string }
+      publish_tournament: { Args: { p_tournament_id: string }; Returns: string }
+      run_tournament_automation_job: { Args: never; Returns: Json }
       set_tournament_management_status: {
         Args: {
-          p_tournament_id: string
           p_next_status: Database["public"]["Enums"]["tournament_status"]
+          p_tournament_id: string
+        }
+        Returns: string
+      }
+      sha256_hex: { Args: { p_value: string }; Returns: string }
+      update_tournament_management_config: {
+        Args: {
+          p_address?: string
+          p_date?: string
+          p_description?: string
+          p_is_public?: boolean
+          p_province?: string
+          p_registration_deadline?: string
+          p_rules?: string
+          p_title: string
+          p_tournament_id: string
         }
         Returns: string
       }
       verify_public_registration_request: {
         Args: {
           p_request_id: string
-          p_verification_code?: string | null
-          p_verification_token?: string | null
+          p_verification_code?: string
+          p_verification_token?: string
         }
-        Returns: {
-          already_verified: boolean
-          registration_id: string
-          public_reference: string | null
-          registration_status: Database["public"]["Enums"]["registration_status"] | null
-          payment_method: Database["public"]["Enums"]["registration_payment_method"] | null
-          amount?: number
-          cancel_code?: string
-          cancel_token?: string
-        }
+        Returns: Json
       }
     }
     Enums: {
@@ -529,14 +544,22 @@ export type Database = {
         | "pending_online_payment"
         | "confirmed"
         | "expired"
-      tournament_status: "draft" | "published" | "closed" | "finished" | "cancelled"
+      tournament_status:
+        | "draft"
+        | "published"
+        | "closed"
+        | "finished"
+        | "cancelled"
     }
-    CompositeTypes: { [_ in never]: never }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
 }
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof DatabaseWithoutInternals, "public">]
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
@@ -545,20 +568,22 @@ export type Tables<
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof (
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-          DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"]
-      )
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
     : never = never,
-> = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
-  ? (
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"]
-    )[TableName] extends { Row: infer R }
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
     ? R
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] & DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
         Row: infer R
       }
       ? R
@@ -574,14 +599,18 @@ export type TablesInsert<
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
-> = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Insert: infer I
     }
     ? I
     : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends { Insert: infer I }
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
       ? I
       : never
     : never
@@ -595,14 +624,18 @@ export type TablesUpdate<
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
-> = DefaultSchemaTableNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Update: infer U
     }
     ? U
     : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends { Update: infer U }
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
       ? U
       : never
     : never
@@ -616,7 +649,9 @@ export type Enums<
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never = never,
-> = DefaultSchemaEnumNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
     ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
@@ -631,7 +666,9 @@ export type CompositeTypes<
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
     : never = never,
-> = PublicCompositeTypeNameOrOptions extends { schema: keyof DatabaseWithoutInternals }
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
@@ -655,7 +692,13 @@ export const Constants = {
         "confirmed",
         "expired",
       ],
-      tournament_status: ["draft", "published", "closed", "finished", "cancelled"],
+      tournament_status: [
+        "draft",
+        "published",
+        "closed",
+        "finished",
+        "cancelled",
+      ],
     },
   },
 } as const

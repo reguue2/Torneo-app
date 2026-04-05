@@ -4,7 +4,7 @@ const featureCards = [
   {
     title: "Creación clara y directa",
     description:
-      "Configura el torneo y publícalo desde un flujo único, sin depender del sistema viejo de drafts.",
+      "Configura el torneo y publícalo desde un flujo único, sin pasos intermedios innecesarios.",
   },
   {
     title: "Con o sin categorías",
@@ -78,101 +78,66 @@ export default function HomePage() {
             </div>
 
             <div className="mt-8 flex flex-wrap gap-3 text-sm text-gray-600">
-              <span className="rounded-full bg-gray-100 px-3 py-1">Con o sin categorías</span>
-              <span className="rounded-full bg-gray-100 px-3 py-1">Validación por email</span>
-              <span className="rounded-full bg-gray-100 px-3 py-1">Efectivo y online</span>
+              <span className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-gray-200">
+                Publicación directa
+              </span>
+              <span className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-gray-200">
+                Inscripción pública controlada
+              </span>
+              <span className="rounded-full bg-white px-3 py-1 shadow-sm ring-1 ring-gray-200">
+                Gestión centralizada
+              </span>
             </div>
           </div>
 
-          <div className="rounded-3xl border border-gray-200 bg-gradient-to-br from-white to-gray-50 p-6 shadow-sm">
-            <div className="rounded-2xl border border-gray-200 bg-white p-5">
-              <p className="text-sm font-medium text-gray-500">Flujo público actual</p>
-              <ol className="mt-4 space-y-4 text-sm text-gray-700">
-                <li className="rounded-xl bg-gray-50 p-4">
-                  <span className="font-semibold text-gray-900">1.</span> El participante crea una
-                  solicitud pública.
-                </li>
-                <li className="rounded-xl bg-gray-50 p-4">
-                  <span className="font-semibold text-gray-900">2.</span> Valida el email antes de
-                  crear la inscripción real.
-                </li>
-                <li className="rounded-xl bg-gray-50 p-4">
-                  <span className="font-semibold text-gray-900">3.</span> El organizador gestiona
-                  confirmaciones y pagos desde el panel.
-                </li>
-              </ol>
+          <div className="rounded-3xl border border-gray-200 bg-white p-8 shadow-xl shadow-gray-100">
+            <div className="rounded-2xl bg-gradient-to-br from-indigo-600 to-blue-500 p-6 text-white">
+              <p className="text-sm uppercase tracking-[0.18em] text-indigo-100">
+                Flujo principal
+              </p>
+              <div className="mt-6 space-y-5">
+                {steps.map((step, index) => (
+                  <div key={step.title} className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-100">
+                      Paso {index + 1}
+                    </p>
+                    <h2 className="mt-2 text-xl font-semibold">{step.title}</h2>
+                    <p className="mt-2 text-sm text-indigo-50">{step.description}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="section-spacing bg-gray-50">
-        <div className="container-custom">
+      <section className="pb-20">
+        <div className="container-custom space-y-8">
           <div className="max-w-2xl">
-            <h2 className="text-3xl font-bold tracking-tight text-gray-900">
-              Hoy el producto ya cubre lo importante.
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-indigo-600">
+              Qué resuelve
+            </p>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight text-gray-900 md:text-4xl">
+              Menos ambigüedad, más control operativo.
             </h2>
-            <p className="mt-3 text-gray-600">
-              Aquí no se venden funciones fantasmas. Esto es lo que sí encaja con el estado actual
-              del sistema.
+            <p className="mt-3 text-lg text-gray-600">
+              La app está pensada para que el organizador no dependa de hojas sueltas, mensajes
+              perdidos o estados confusos.
             </p>
           </div>
 
-          <div className="mt-12 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-            {featureCards.map((feature) => (
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {featureCards.map((card) => (
               <article
-                key={feature.title}
-                className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm"
+                key={card.title}
+                className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm"
               >
-                <h3 className="text-lg font-semibold text-gray-900">{feature.title}</h3>
-                <p className="mt-3 text-sm leading-6 text-gray-600">{feature.description}</p>
+                <h3 className="text-xl font-semibold tracking-tight text-gray-900">
+                  {card.title}
+                </h3>
+                <p className="mt-3 text-sm leading-6 text-gray-600">{card.description}</p>
               </article>
             ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section-spacing">
-        <div className="container-custom">
-          <div className="max-w-2xl">
-            <h2 className="text-3xl font-bold tracking-tight text-gray-900">
-              Cómo funciona ahora mismo.
-            </h2>
-            <p className="mt-3 text-gray-600">
-              El objetivo no es complicarte el producto. Es dejar claro el recorrido operativo real.
-            </p>
-          </div>
-
-          <div className="mt-12 grid gap-6 lg:grid-cols-3">
-            {steps.map((step, index) => (
-              <article
-                key={step.title}
-                className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm"
-              >
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 font-semibold text-indigo-700">
-                  {index + 1}
-                </div>
-                <h3 className="mt-5 text-xl font-semibold text-gray-900">{step.title}</h3>
-                <p className="mt-3 text-sm leading-6 text-gray-600">{step.description}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="section-spacing border-t border-gray-200 bg-white">
-        <div className="container-custom text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-gray-900">¿Quieres montarlo ya?</h2>
-          <p className="mx-auto mt-4 max-w-2xl text-lg text-gray-600">
-            Crea tu torneo, publícalo y comparte el enlace público desde el flujo nuevo.
-          </p>
-          <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-            <Link href="/crear-torneo" className="btn-primary text-center">
-              Empezar a crear
-            </Link>
-            <Link href="/mis-torneos" className="btn-secondary text-center">
-              Ir a mis torneos
-            </Link>
           </div>
         </div>
       </section>

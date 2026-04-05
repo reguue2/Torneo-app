@@ -5,10 +5,26 @@ import { useMemo, useState } from "react"
 
 import { createClient } from "@/lib/supabase/client"
 import { formatMoney } from "@/lib/tournaments/domain"
-import type { Database } from "@/types/database"
+import type { Json } from "@/types/database"
 
-type VerificationResult =
-  Database["public"]["Functions"]["verify_public_registration_request"]["Returns"]
+type VerificationResult = {
+  already_verified: boolean
+  public_reference: string | null
+  registration_status:
+    | "pending"
+    | "paid"
+    | "cancelled"
+    | "pending_verification"
+    | "pending_cash_validation"
+    | "pending_online_payment"
+    | "confirmed"
+    | "expired"
+    | null
+  payment_method: "cash" | "online" | null
+  amount: number | null
+  cancel_code: string | null
+  cancel_token: string | null
+}
 
 type Props = {
   initialRequestId: string
@@ -18,6 +34,54 @@ type Props = {
 
 type SubmitMode = "token" | "code"
 type FlowStatus = "idle" | "submitting" | "success" | "error"
+
+function isObject(value: Json | null): value is Record<string, Json | undefined> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function parseVerificationResult(value: Json | null): VerificationResult | null {
+  if (!isObject(value)) return null
+
+  const alreadyVerified = value.already_verified
+  const publicReference = value.public_reference
+  const registrationStatus = value.registration_status
+  const paymentMethod = value.payment_method
+  const amount = value.amount
+  const cancelCode = value.cancel_code
+  const cancelToken = value.cancel_token
+
+  if (typeof alreadyVerified !== "boolean") return null
+  if (publicReference !== null && typeof publicReference !== "string") return null
+  if (
+    registrationStatus !== null &&
+    registrationStatus !== "pending" &&
+    registrationStatus !== "paid" &&
+    registrationStatus !== "cancelled" &&
+    registrationStatus !== "pending_verification" &&
+    registrationStatus !== "pending_cash_validation" &&
+    registrationStatus !== "pending_online_payment" &&
+    registrationStatus !== "confirmed" &&
+    registrationStatus !== "expired"
+  ) {
+    return null
+  }
+  if (paymentMethod !== null && paymentMethod !== "cash" && paymentMethod !== "online") {
+    return null
+  }
+  if (amount !== null && typeof amount !== "number") return null
+  if (cancelCode !== null && typeof cancelCode !== "string") return null
+  if (cancelToken !== null && typeof cancelToken !== "string") return null
+
+  return {
+    already_verified: alreadyVerified,
+    public_reference: publicReference,
+    registration_status: registrationStatus,
+    payment_method: paymentMethod,
+    amount,
+    cancel_code: cancelCode,
+    cancel_token: cancelToken,
+  }
+}
 
 function mapErrorMessage(message: string) {
   if (message.includes("Verification request not found")) {
@@ -115,8 +179,8 @@ export default function VerifyFlow({
       "verify_public_registration_request",
       {
         p_request_id: requestId.trim(),
-        p_verification_token: mode === "token" ? token : null,
-        p_verification_code: mode === "code" ? code.trim() : null,
+        p_verification_token: mode === "token" ? token : undefined,
+        p_verification_code: mode === "code" ? code.trim() : undefined,
       }
     )
 
@@ -126,7 +190,15 @@ export default function VerifyFlow({
       return
     }
 
-    setResult(data)
+    const parsedResult = parseVerificationResult(data)
+
+    if (!parsedResult) {
+      setFlowStatus("error")
+      setError("La respuesta del servidor no tiene el formato esperado.")
+      return
+    }
+
+    setResult(parsedResult)
     setFlowStatus("success")
   }
 
@@ -206,7 +278,8 @@ export default function VerifyFlow({
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Validar inscripción</h1>
         <p className="mt-2 text-gray-600">
-          Puedes validar por enlace o pegando manualmente el identificador de solicitud y el código.
+          Puedes validar con el enlace recibido por correo o pegando manualmente el
+          identificador de solicitud y el código que llegue en ese mensaje.
         </p>
       </div>
 
@@ -246,7 +319,8 @@ export default function VerifyFlow({
         <div>
           <p className="font-semibold text-gray-900">Validación manual por código</p>
           <p className="mt-2 text-sm text-gray-600">
-            Úsalo si no tienes el enlace completo pero sí el identificador de solicitud y el código.
+            Úsalo si no tienes el enlace completo pero sí el identificador de solicitud y el
+            código recibido por correo.
           </p>
         </div>
 

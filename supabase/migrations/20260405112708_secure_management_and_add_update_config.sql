@@ -12,7 +12,8 @@ create or replace function public.update_tournament_management_config(
   p_date timestamp without time zone default null,
   p_registration_deadline timestamp without time zone default null,
   p_is_public boolean default true
-) returns uuid
+)
+returns uuid
 language plpgsql
 security definer
 set search_path = public

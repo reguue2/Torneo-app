@@ -3,10 +3,13 @@
 import Link from "next/link"
 import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import type { Database } from "@/types/database"
+import type { Json } from "@/types/database"
 
-type CancelResult =
-  Database["public"]["Functions"]["cancel_public_registration"]["Returns"]
+type CancelResult = {
+  already_cancelled: boolean
+  public_reference: string | null
+  status: string | null
+}
 
 type Props = {
   initialReference: string
@@ -16,12 +19,40 @@ type Props = {
 
 type FlowStatus = "idle" | "submitting" | "success" | "error"
 
+function isObject(value: Json | null): value is Record<string, Json | undefined> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function parseCancelResult(value: Json | null): CancelResult | null {
+  if (!isObject(value)) return null
+
+  const alreadyCancelled = value.already_cancelled
+  const publicReference = value.public_reference
+  const status = value.status
+
+  if (typeof alreadyCancelled !== "boolean") return null
+  if (publicReference !== null && typeof publicReference !== "string") return null
+  if (status !== null && typeof status !== "string") return null
+
+  return {
+    already_cancelled: alreadyCancelled,
+    public_reference: publicReference,
+    status,
+  }
+}
+
 function mapErrorMessage(message: string) {
   if (message.includes("Registration not found")) {
     return "No hemos encontrado la inscripción."
   }
   if (message.includes("Invalid cancel token") || message.includes("Invalid cancel code")) {
     return "El enlace o el código de cancelación no son válidos."
+  }
+  if (message.includes("Public cancellation deadline passed")) {
+    return "La fecha límite de cancelación pública ya ha pasado."
+  }
+  if (message.includes("Finished or cancelled tournaments cannot be changed")) {
+    return "Ya no se puede cancelar públicamente una inscripción de un torneo finalizado o cancelado."
   }
 
   return message
@@ -56,8 +87,8 @@ export default function CancelFlow({
       "cancel_public_registration",
       {
         p_public_reference: reference.trim(),
-        p_cancel_token: mode === "token" ? token.trim() : null,
-        p_cancel_code: mode === "code" ? code.trim() : null,
+        p_cancel_token: mode === "token" ? token.trim() : undefined,
+        p_cancel_code: mode === "code" ? code.trim() : undefined,
       }
     )
 
@@ -67,7 +98,15 @@ export default function CancelFlow({
       return
     }
 
-    setResult(data)
+    const parsedResult = parseCancelResult(data)
+
+    if (!parsedResult) {
+      setFlowStatus("error")
+      setError("La respuesta del servidor no tiene el formato esperado.")
+      return
+    }
+
+    setResult(parsedResult)
     setFlowStatus("success")
   }
 
@@ -110,7 +149,8 @@ export default function CancelFlow({
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Cancelar inscripción</h1>
         <p className="mt-2 text-gray-600">
-          La cancelación ya no se ejecuta al abrir el enlace. Aquí la confirmas de forma explícita.
+          La cancelación ya no se ejecuta al abrir el enlace. Aquí la confirmas de forma
+          explícita.
         </p>
       </div>
 

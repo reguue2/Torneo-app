@@ -7,7 +7,6 @@ import {
   getExploreStatus,
   paymentMethodLabel,
 } from "@/lib/tournaments/domain"
-import { runAutomaticStateSync } from "@/lib/tournaments/server"
 import type { Tables } from "@/types/database"
 
 type ExploreSearchParams = Promise<{
@@ -97,8 +96,6 @@ export default async function ExplorarPage({
 }) {
   const { q = "", province = "" } = await searchParams
   const supabase = await createClient()
-
-  await runAutomaticStateSync(supabase)
 
   let query = supabase
     .from("tournaments")

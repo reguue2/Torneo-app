@@ -1,19 +1,27 @@
 "use client"
 
+import { useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
-import { useState } from "react"
-import { useRouter } from "next/navigation"
 import GoogleIcon from "@/components/icons/GoogleIcon"
 
 export default function LoginPage() {
   const supabase = createClient()
   const router = useRouter()
+  const searchParams = useSearchParams()
 
   const [isLogin, setIsLogin] = useState(true)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const authError = searchParams.get("authError")
+    if (!authError) return
+
+    setError(decodeURIComponent(authError))
+  }, [searchParams])
 
   const handleAuth = async () => {
     setLoading(true)
@@ -40,9 +48,7 @@ export default function LoginPage() {
       router.refresh()
     } catch (err: unknown) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Ha ocurrido un error inesperado."
+        err instanceof Error ? err.message : "Ha ocurrido un error inesperado."
       )
     } finally {
       setLoading(false)
@@ -50,6 +56,8 @@ export default function LoginPage() {
   }
 
   const handleGoogle = async () => {
+    setError(null)
+
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -106,9 +114,7 @@ export default function LoginPage() {
             className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:border-indigo-500"
           />
 
-          {error && (
-            <p className="text-red-500 text-sm text-center">{error}</p>
-          )}
+          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
 
           <button
             onClick={handleAuth}

@@ -11,7 +11,6 @@ import {
   getSidebarStatus,
   paymentMethodLabel,
 } from "@/lib/tournaments/domain"
-import { runAutomaticStateSync } from "@/lib/tournaments/server"
 
 type Category = {
   id: string
@@ -100,7 +99,6 @@ export default async function TorneoPublicoPage({
   const { id } = await params
 
   const supabase = await createClient()
-  await runAutomaticStateSync(supabase)
 
   const { data: tournament, error } = await supabase
     .from("tournaments")

@@ -1,18 +1,17 @@
-type AutomaticStateSyncResult = {
-  error: { message: string } | null
-}
+import { createAdminClient } from "@/lib/supabase/admin"
+import type { Database } from "@/types/database"
 
-type AutomaticStateSyncClient = {
-  rpc: (
-    fn: "apply_automatic_state_transitions",
-    args?: Record<string, never>
-  ) => PromiseLike<AutomaticStateSyncResult>
-}
+export type AutomaticStateSyncData =
+  Database["public"]["Functions"]["apply_automatic_state_transitions"]["Returns"]
 
-export async function runAutomaticStateSync(supabase: AutomaticStateSyncClient) {
-  const { error } = await supabase.rpc("apply_automatic_state_transitions")
+export async function runAutomaticStateSync() {
+  const supabase = createAdminClient()
+
+  const { data, error } = await supabase.rpc("apply_automatic_state_transitions")
 
   if (error) {
-    console.error("apply_automatic_state_transitions failed:", error.message)
+    throw new Error(error.message)
   }
+
+  return data satisfies AutomaticStateSyncData
 }

@@ -2,7 +2,6 @@ import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import CopyTournamentLinkButton from "@/components/copy-tournament-link-button"
-import { runAutomaticStateSync } from "@/lib/tournaments/server"
 import type { Enums, Tables } from "@/types/database"
 
 type TournamentStatus = Enums<"tournament_status">
@@ -87,7 +86,7 @@ function getTournamentStatusBadge(status: TournamentStatus | null) {
 }
 
 function getTournamentStatusLabel(status: TournamentStatus | null) {
-  if (status === "draft") return "Borrador legacy"
+  if (status === "draft") return "No publicado"
   if (status === "published") return "Publicado"
   if (status === "closed") return "Cerrado"
   if (status === "finished") return "Finalizado"
@@ -238,7 +237,7 @@ function TournamentCard({
   const statusBadge = getTournamentStatusBadge(tournament.status)
   const statusLabel = getTournamentStatusLabel(tournament.status)
   const registrationBadge = getRegistrationBadge(tournament)
-  const isLegacyDraft = tournament.status === "draft"
+  const isUnpublishedTournament = tournament.status === "draft"
 
   return (
     <article className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -248,7 +247,7 @@ function TournamentCard({
         >
           {statusLabel}
         </span>
-        {registrationBadge && !isLegacyDraft && (
+        {registrationBadge && !isUnpublishedTournament && (
           <span
             className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${registrationBadge.className}`}
           >
@@ -263,8 +262,8 @@ function TournamentCard({
             {tournament.title}
           </h3>
           <p className="mt-2 text-sm text-gray-500">
-            {isLegacyDraft
-              ? "Resto del flujo anterior. No conviene seguirlo ni reabrir rutas viejas."
+            {isUnpublishedTournament
+              ? "Este torneo no llegó a publicarse. Si quieres usarlo, conviene rehacerlo con el flujo actual."
               : tournament.is_public
                 ? "Torneo público"
                 : "Oculto del explorador, accesible por enlace"}
@@ -277,7 +276,7 @@ function TournamentCard({
             <span>{formatDate(tournament.date)}</span>
           </div>
 
-          {!isLegacyDraft && (
+          {!isUnpublishedTournament && (
             <div className="flex items-center gap-2">
               <span>⏳</span>
               <span>Límite inscripción: {formatDate(tournament.registration_deadline)}</span>
@@ -334,13 +333,13 @@ function TournamentCard({
         </div>
 
         <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:flex-wrap">
-          {isLegacyDraft ? (
+          {isUnpublishedTournament ? (
             <>
               <Link href="/crear-torneo" className="btn-primary w-full text-center sm:w-auto">
                 Crear de nuevo
               </Link>
               <p className="text-xs text-gray-500">
-                El flujo actual ya no guarda drafts en base de datos.
+                Para publicarlo correctamente, reházalo desde el flujo actual.
               </p>
             </>
           ) : (
@@ -373,8 +372,6 @@ export default async function MisTorneosPage() {
   } = await supabase.auth.getUser()
 
   if (!user) redirect("/login")
-
-  await runAutomaticStateSync(supabase)
 
   const { data: tournamentsData, error: tournamentsError } = await supabase
     .from("tournaments")
@@ -551,7 +548,7 @@ export default async function MisTorneosPage() {
     .filter((tournament) => tournament.status === "published" || tournament.status === "closed")
     .sort(sortByDateAsc)
 
-  const legacyDrafts = allTournaments
+  const unpublishedTournaments = allTournaments
     .filter((tournament) => tournament.status === "draft")
     .sort(sortByUpdatedDesc)
 
@@ -684,25 +681,23 @@ export default async function MisTorneosPage() {
           )}
         </section>
 
-        {legacyDrafts.length > 0 && (
+        {unpublishedTournaments.length > 0 && (
           <section className="space-y-5">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight text-gray-900">
-                Borradores legacy
+                Pendientes de rehacer
               </h2>
               <p className="mt-1 text-sm text-gray-500">
-                Son restos del flujo antiguo. El flujo actual ya no crea borradores en base de
-                datos.
+                Son torneos no publicados que conviene recrear con el flujo actual antes de usarlos.
               </p>
             </div>
 
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              No continúes estos borradores desde rutas antiguas. Si quieres seguir, recréalos con
-              el flujo nuevo.
+              Lo recomendable es rehacer estos torneos con el flujo actual y publicar una versión nueva.
             </div>
 
             <div className="grid gap-6 lg:grid-cols-2">
-              {legacyDrafts.map((tournament) => (
+              {unpublishedTournaments.map((tournament) => (
                 <TournamentCard key={tournament.id} tournament={tournament} />
               ))}
             </div>

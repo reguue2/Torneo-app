@@ -520,7 +520,7 @@ export default function CreateTournamentForm() {
               Crear y publicar torneo
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-gray-500">
-              Flujo nuevo sin drafts persistidos en base de datos. Todo se prepara aquí y se publica al final.
+              Todo se prepara aquí y se publica al final, dentro de un flujo único y directo.
             </p>
           </div>
 
@@ -614,7 +614,7 @@ export default function CreateTournamentForm() {
                   <div>
                     <label className="label">Provincia</label>
                     <select
-                      name="province"
+                      name="province" 
                       className="input"
                       value={draft.province}
                       onChange={(e) => updateDraft("province", e.target.value)}
@@ -1268,7 +1268,7 @@ export default function CreateTournamentForm() {
                 <div className="mt-4 space-y-3 text-sm text-gray-600">
                   <p>Se subirá el cartel a storage.</p>
                   <p>Se creará el torneo directamente en la BD.</p>
-                  <p>No se persistirá ningún draft como flujo normal.</p>
+                  <p>No habrá pasos intermedios fuera de este flujo.</p>
                   <p>El torneo quedará publicado al terminar.</p>
                 </div>
 
