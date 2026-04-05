@@ -96,6 +96,8 @@ export const CONFIRMABLE_ONLINE_STATUSES: RegistrationStatus[] = [
 
 export const CANCELLABLE_BY_ORGANIZER_STATUSES: RegistrationStatus[] = [
   "pending",
+  "paid",
   "pending_cash_validation",
   "pending_online_payment",
+  "confirmed",
 ]

@@ -239,11 +239,11 @@ function mapManagementError(message: string) {
   if (message.includes("You cannot manage this registration")) {
     return "No puedes gestionar esta inscripción."
   }
-  if (message.includes("Only cash registrations can be marked as paid manually")) {
+  if (message.includes("Only cash registrations can be approved manually")) {
     return "Solo puedes validar manualmente una inscripción en efectivo."
   }
-  if (message.includes("Only pending registrations can be marked as paid")) {
-    return "Solo puedes validar inscripciones pendientes."
+  if (message.includes("Registration is not waiting for cash validation")) {
+    return "Solo puedes validar inscripciones en efectivo que sigan pendientes de validación."
   }
   if (message.includes("Only online registrations can be marked as paid manually")) {
     return "Solo puedes confirmar manualmente pagos online simulados."
@@ -251,8 +251,8 @@ function mapManagementError(message: string) {
   if (message.includes("Only online pending registrations can be marked as paid")) {
     return "Solo puedes confirmar pagos online que sigan pendientes."
   }
-  if (message.includes("Only pending registrations can be cancelled")) {
-    return "Solo puedes cancelar inscripciones pendientes."
+  if (message.includes("Expired registrations cannot be changed")) {
+    return "No puedes cancelar inscripciones caducadas."
   }
   return message
 }
@@ -499,7 +499,17 @@ export default function ManageDashboard({
       is_public: form.is_public,
     }
 
-    const { error } = await supabase.from("tournaments").update(payload).eq("id", tournament.id)
+    const { error } = await supabase.rpc("update_tournament_management_config", {
+      p_tournament_id: tournament.id,
+      p_title: payload.title,
+      p_description: payload.description,
+      p_rules: payload.rules,
+      p_province: payload.province,
+      p_address: payload.address,
+      p_date: payload.date,
+      p_registration_deadline: payload.registration_deadline,
+      p_is_public: payload.is_public,
+    })
 
     setBusy(null)
 
@@ -523,7 +533,7 @@ export default function ManageDashboard({
 
     setBusy(`paid:${view.registration.id}`)
 
-    const { error } = await supabase.rpc("mark_cash_registration_paid", {
+    const { error } = await supabase.rpc("approve_cash_registration", {
       p_registration_id: view.registration.id,
     })
 
@@ -567,13 +577,15 @@ export default function ManageDashboard({
     setPageError(null)
 
     if (!canCancelFromDashboard(view.registration.status)) {
-      setPageError("Solo puedes cancelar inscripciones todavía pendientes desde este panel.")
+      setPageError(
+        "Solo puedes cancelar desde este panel inscripciones que todavía no estén caducadas ni canceladas."
+      )
       return
     }
 
     setBusy(`cancel:${view.registration.id}`)
 
-    const { error } = await supabase.rpc("cancel_pending_registration_by_organizer", {
+    const { error } = await supabase.rpc("cancel_registration_by_organizer", {
       p_registration_id: view.registration.id,
     })
 

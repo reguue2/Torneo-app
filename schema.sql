@@ -140,10 +140,7 @@ declare
 begin
   update public.tournaments
   set status = 'finished'::public.tournament_status
-  where status in (
-    'published'::public.tournament_status,
-    'closed'::public.tournament_status
-  )
+  where status in ('published'::public.tournament_status, 'closed'::public.tournament_status)
     and date is not null
     and date < now();
 
@@ -706,10 +703,6 @@ begin
       raise exception 'Tournament entry price is invalid';
     end if;
 
-    if p_prize_mode = 'global'::public.prize_mode and trim(coalesce(p_prizes, '')) = '' then
-      raise exception 'Global prizes are required';
-    end if;
-
     if p_prize_mode = 'per_category'::public.prize_mode then
       raise exception 'Per-category prizes require categories';
     end if;
@@ -1004,7 +997,9 @@ declare
   v_tournament public.tournaments%rowtype;
   v_category public.categories%rowtype;
   v_display_name text;
+  v_phone_raw text;
   v_phone_normalized text;
+  v_email_raw text;
   v_email_normalized text;
   v_request_id uuid;
   v_amount numeric;
@@ -1017,12 +1012,14 @@ begin
     raise exception 'Display name is required';
   end if;
 
-  v_phone_normalized := public.normalize_phone(p_contact_phone);
+  v_phone_raw := trim(coalesce(p_contact_phone, ''));
+  v_phone_normalized := public.normalize_phone(v_phone_raw);
   if v_phone_normalized is null then
     raise exception 'Contact phone is required';
   end if;
 
-  v_email_normalized := public.normalize_email(p_contact_email);
+  v_email_raw := trim(coalesce(p_contact_email, ''));
+  v_email_normalized := public.normalize_email(v_email_raw);
   if v_email_normalized is null then
     raise exception 'Contact email is required';
   end if;
@@ -1076,11 +1073,13 @@ begin
     v_amount := coalesce(v_tournament.entry_price, 0);
   end if;
 
-  if v_tournament.payment_method = 'cash'::public.payment_method_enum and p_payment_method <> 'cash'::public.registration_payment_method then
+  if v_tournament.payment_method = 'cash'::public.payment_method_enum
+     and p_payment_method <> 'cash'::public.registration_payment_method then
     raise exception 'Only cash registrations are available right now';
   end if;
 
-  if v_tournament.payment_method = 'online'::public.payment_method_enum and p_payment_method <> 'online'::public.registration_payment_method then
+  if v_tournament.payment_method = 'online'::public.payment_method_enum
+     and p_payment_method <> 'online'::public.registration_payment_method then
     raise exception 'Only online registrations are available right now';
   end if;
 
@@ -1136,9 +1135,9 @@ begin
     p_category_id,
     p_participant_type,
     v_display_name,
-    trim(p_contact_phone),
+    v_phone_raw,
     v_phone_normalized,
-    v_email_normalized,
+    v_email_raw,
     v_email_normalized,
     p_players,
     p_payment_method,
@@ -1320,6 +1319,126 @@ $$;
 
 
 ALTER FUNCTION "public"."mark_cash_registration_paid"("p_registration_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."mark_online_registration_paid"("p_registration_id" "uuid") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_registration public.registrations%rowtype;
+  v_tournament public.tournaments%rowtype;
+  v_category public.categories%rowtype;
+  v_payment public.payments%rowtype;
+  v_tournament_id uuid;
+  v_amount numeric := 0;
+begin
+  select *
+  into v_registration
+  from public.registrations
+  where id = p_registration_id;
+
+  if not found then
+    raise exception 'Registration not found';
+  end if;
+
+  if v_registration.tournament_id is not null then
+    v_tournament_id := v_registration.tournament_id;
+  elsif v_registration.category_id is not null then
+    select *
+    into v_category
+    from public.categories
+    where id = v_registration.category_id;
+
+    if not found then
+      raise exception 'Category not found';
+    end if;
+
+    v_tournament_id := v_category.tournament_id;
+  else
+    raise exception 'Registration is not linked to a tournament';
+  end if;
+
+  select *
+  into v_tournament
+  from public.tournaments
+  where id = v_tournament_id;
+
+  if not found then
+    raise exception 'Tournament not found';
+  end if;
+
+  if auth.uid() is null or auth.uid() <> v_tournament.organizer_id then
+    raise exception 'You cannot manage this registration';
+  end if;
+
+  if v_registration.payment_method <> 'online'::public.registration_payment_method then
+    raise exception 'Only online registrations can be marked as paid manually';
+  end if;
+
+  if v_registration.status <> 'pending_online_payment'::public.registration_status then
+    raise exception 'Only online pending registrations can be marked as paid';
+  end if;
+
+  if v_registration.category_id is not null then
+    if v_category.id is null then
+      select *
+      into v_category
+      from public.categories
+      where id = v_registration.category_id;
+    end if;
+
+    v_amount := coalesce(v_category.price, 0);
+  else
+    v_amount := coalesce(v_tournament.entry_price, 0);
+  end if;
+
+  update public.registrations
+  set status = 'confirmed'::public.registration_status
+  where id = v_registration.id;
+
+  select *
+  into v_payment
+  from public.payments
+  where registration_id = v_registration.id
+  order by created_at asc nulls last
+  limit 1;
+
+  if found then
+    update public.payments
+    set
+      amount = coalesce(v_amount, 0),
+      payment_method = 'online'::public.registration_payment_method,
+      status = 'paid'::public.payment_status,
+      paid_at = now()
+    where id = v_payment.id;
+  else
+    insert into public.payments (
+      registration_id,
+      amount,
+      payment_method,
+      status,
+      paid_at
+    )
+    values (
+      v_registration.id,
+      coalesce(v_amount, 0),
+      'online'::public.registration_payment_method,
+      'paid'::public.payment_status,
+      now()
+    );
+  end if;
+
+  return jsonb_build_object(
+    'registration_id', v_registration.id,
+    'status', 'confirmed',
+    'amount', coalesce(v_amount, 0)
+  );
+end;
+$$;
+
+
+ALTER FUNCTION "public"."mark_online_registration_paid"("p_registration_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."normalize_email"("p_email" "text") RETURNS "text"
@@ -1506,7 +1625,7 @@ begin
   end if;
 
   if v_tournament.status = 'draft'::public.tournament_status then
-    raise exception 'Draft tournaments must be managed from the creation flow';
+    raise exception 'Draft tournaments must be published from the publish flow';
   end if;
 
   if p_next_status = 'published'::public.tournament_status then
@@ -1521,12 +1640,10 @@ begin
         raise exception 'Registration deadline already passed';
       end if;
     end if;
-
   elsif p_next_status = 'closed'::public.tournament_status then
     if v_tournament.status <> 'published'::public.tournament_status then
       raise exception 'Only published tournaments can be closed';
     end if;
-
   elsif p_next_status = 'finished'::public.tournament_status then
     if v_tournament.status not in (
       'published'::public.tournament_status,
@@ -1534,7 +1651,6 @@ begin
     ) then
       raise exception 'Only published or closed tournaments can be finished';
     end if;
-
   elsif p_next_status = 'cancelled'::public.tournament_status then
     if v_tournament.status not in (
       'published'::public.tournament_status,
@@ -1542,7 +1658,6 @@ begin
     ) then
       raise exception 'Only published or closed tournaments can be cancelled';
     end if;
-
   else
     raise exception 'Unsupported tournament status transition';
   end if;
@@ -1988,6 +2103,14 @@ CREATE UNIQUE INDEX "registrations_active_email_unique" ON "public"."registratio
 
 
 CREATE UNIQUE INDEX "registrations_active_phone_unique" ON "public"."registrations" USING "btree" ("tournament_id", COALESCE("category_id", '00000000-0000-0000-0000-000000000000'::"uuid"), "contact_phone_normalized") WHERE (("contact_phone_normalized" IS NOT NULL) AND ("status" <> ALL (ARRAY['cancelled'::"public"."registration_status", 'expired'::"public"."registration_status"])));
+
+
+
+CREATE INDEX "registrations_lookup_email_idx" ON "public"."registrations" USING "btree" ("tournament_id", "category_id", "contact_email_normalized");
+
+
+
+CREATE INDEX "registrations_lookup_phone_idx" ON "public"."registrations" USING "btree" ("tournament_id", "category_id", "contact_phone_normalized");
 
 
 
@@ -2453,6 +2576,12 @@ GRANT ALL ON FUNCTION "public"."mark_cash_registration_paid"("p_registration_id"
 
 
 
+GRANT ALL ON FUNCTION "public"."mark_online_registration_paid"("p_registration_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."mark_online_registration_paid"("p_registration_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."mark_online_registration_paid"("p_registration_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."normalize_email"("p_email" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."normalize_email"("p_email" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."normalize_email"("p_email" "text") TO "service_role";
@@ -2524,7 +2653,7 @@ GRANT ALL ON TABLE "public"."categories" TO "service_role";
 
 GRANT ALL ON TABLE "public"."participants" TO "service_role";
 GRANT SELECT ON TABLE "public"."participants" TO "anon";
-GRANT SELECT,INSERT,UPDATE ON TABLE "public"."participants" TO "authenticated";
+GRANT SELECT,UPDATE ON TABLE "public"."participants" TO "authenticated";
 
 
 
@@ -2539,7 +2668,7 @@ GRANT ALL ON TABLE "public"."registration_requests" TO "service_role";
 
 
 GRANT SELECT,REFERENCES,DELETE,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE "public"."registrations" TO "anon";
-GRANT ALL ON TABLE "public"."registrations" TO "authenticated";
+GRANT SELECT,REFERENCES,DELETE,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE "public"."registrations" TO "authenticated";
 GRANT ALL ON TABLE "public"."registrations" TO "service_role";
 
 
