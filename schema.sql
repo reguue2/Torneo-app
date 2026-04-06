@@ -585,7 +585,7 @@ $$;
 ALTER FUNCTION "public"."cleanup_old_drafts"("days_old" integer) OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."create_and_publish_tournament"("p_title" "text", "p_description" "text", "p_poster_url" "text", "p_province" "text", "p_address" "text", "p_date" timestamp without time zone, "p_registration_deadline" timestamp without time zone, "p_is_public" boolean, "p_has_categories" boolean, "p_min_participants" integer, "p_max_participants" integer, "p_payment_method" "public"."payment_method_enum", "p_prize_mode" "public"."prize_mode", "p_prizes" "text", "p_rules" "text", "p_entry_price" numeric, "p_categories" "jsonb" DEFAULT '[]'::"jsonb") RETURNS "uuid"
+CREATE OR REPLACE FUNCTION "public"."create_and_publish_tournament"("p_title" "text", "p_description" "text", "p_poster_url" "text", "p_province" "text", "p_address" "text", "p_date" timestamp without time zone, "p_registration_deadline" timestamp without time zone, "p_is_public" boolean, "p_has_categories" boolean, "p_participant_type" "public"."participant_type" DEFAULT NULL::"public"."participant_type", "p_min_participants" integer DEFAULT 1, "p_max_participants" integer DEFAULT NULL::integer, "p_payment_method" "public"."payment_method_enum" DEFAULT NULL::"public"."payment_method_enum", "p_prize_mode" "public"."prize_mode" DEFAULT 'none'::"public"."prize_mode", "p_prizes" "text" DEFAULT NULL::"text", "p_rules" "text" DEFAULT NULL::"text", "p_entry_price" numeric DEFAULT 0, "p_categories" "jsonb" DEFAULT '[]'::"jsonb") RETURNS "uuid"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
@@ -593,6 +593,8 @@ declare
   v_tournament_id uuid;
   v_category jsonb;
   v_category_name text;
+  v_category_participant_type_text text;
+  v_category_participant_type public.participant_type;
   v_category_price numeric;
   v_category_min integer;
   v_category_max integer;
@@ -601,7 +603,7 @@ declare
   v_category_prizes text;
 begin
   if auth.uid() is null then
-    raise exception 'You must be authenticated';
+    raise exception 'Authentication required';
   end if;
 
   if trim(coalesce(p_title, '')) = '' then
@@ -609,7 +611,7 @@ begin
   end if;
 
   if trim(coalesce(p_poster_url, '')) = '' then
-    raise exception 'Poster is required';
+    raise exception 'Poster URL is required';
   end if;
 
   if trim(coalesce(p_province, '')) = '' then
@@ -645,29 +647,25 @@ begin
   end if;
 
   if p_has_categories then
-    if p_categories is null or jsonb_typeof(p_categories) <> 'array' then
-      raise exception 'Categories payload is invalid';
-    end if;
-
-    if jsonb_array_length(p_categories) < 2 then
-      raise exception 'At least 2 categories are required';
-    end if;
-
-    if p_prize_mode = 'global'::public.prize_mode and trim(coalesce(p_prizes, '')) = '' then
-      raise exception 'Global prizes are required';
+    if p_participant_type is not null then
+      raise exception 'Tournament participant type is not allowed when categories exist';
     end if;
   else
-    if p_categories is not null and jsonb_typeof(p_categories) = 'array' and jsonb_array_length(p_categories) > 0 then
-      raise exception 'Categories are not allowed for this tournament';
+    if p_participant_type is null then
+      raise exception 'Tournament participant type is required';
     end if;
 
     if coalesce(p_entry_price, 0) < 0 then
       raise exception 'Tournament entry price is invalid';
     end if;
+  end if;
 
-    if p_prize_mode = 'per_category'::public.prize_mode then
-      raise exception 'Per-category prizes require categories';
-    end if;
+  if p_prize_mode = 'global'::public.prize_mode and trim(coalesce(p_prizes, '')) = '' then
+    raise exception 'Global prizes are required';
+  end if;
+
+  if p_prize_mode = 'per_category'::public.prize_mode and not p_has_categories then
+    raise exception 'Category prizes require categories';
   end if;
 
   insert into public.tournaments (
@@ -686,6 +684,7 @@ begin
     is_public,
     status,
     has_categories,
+    participant_type,
     min_participants,
     prize_mode,
     entry_price
@@ -709,6 +708,7 @@ begin
     coalesce(p_is_public, true),
     'draft'::public.tournament_status,
     p_has_categories,
+    case when p_has_categories then null else p_participant_type end,
     p_min_participants,
     coalesce(p_prize_mode, 'none'::public.prize_mode),
     coalesce(p_entry_price, 0)
@@ -721,6 +721,7 @@ begin
       from jsonb_array_elements(p_categories)
     loop
       v_category_name := trim(coalesce(v_category->>'name', ''));
+      v_category_participant_type_text := trim(coalesce(v_category->>'participant_type', ''));
       v_category_price := coalesce((v_category->>'price')::numeric, 0);
       v_category_min := coalesce((v_category->>'min_participants')::integer, 0);
 
@@ -743,6 +744,12 @@ begin
         raise exception 'Category name is required';
       end if;
 
+      if v_category_participant_type_text not in ('individual', 'team') then
+        raise exception 'Category participant type is required';
+      end if;
+
+      v_category_participant_type := v_category_participant_type_text::public.participant_type;
+
       if v_category_price < 0 then
         raise exception 'Category price is invalid';
       end if;
@@ -762,6 +769,7 @@ begin
       insert into public.categories (
         tournament_id,
         name,
+        participant_type,
         price,
         min_participants,
         max_participants,
@@ -772,6 +780,7 @@ begin
       values (
         v_tournament_id,
         v_category_name,
+        v_category_participant_type,
         v_category_price,
         v_category_min,
         v_category_max,
@@ -789,7 +798,7 @@ end;
 $$;
 
 
-ALTER FUNCTION "public"."create_and_publish_tournament"("p_title" "text", "p_description" "text", "p_poster_url" "text", "p_province" "text", "p_address" "text", "p_date" timestamp without time zone, "p_registration_deadline" timestamp without time zone, "p_is_public" boolean, "p_has_categories" boolean, "p_min_participants" integer, "p_max_participants" integer, "p_payment_method" "public"."payment_method_enum", "p_prize_mode" "public"."prize_mode", "p_prizes" "text", "p_rules" "text", "p_entry_price" numeric, "p_categories" "jsonb") OWNER TO "postgres";
+ALTER FUNCTION "public"."create_and_publish_tournament"("p_title" "text", "p_description" "text", "p_poster_url" "text", "p_province" "text", "p_address" "text", "p_date" timestamp without time zone, "p_registration_deadline" timestamp without time zone, "p_is_public" boolean, "p_has_categories" boolean, "p_participant_type" "public"."participant_type", "p_min_participants" integer, "p_max_participants" integer, "p_payment_method" "public"."payment_method_enum", "p_prize_mode" "public"."prize_mode", "p_prizes" "text", "p_rules" "text", "p_entry_price" numeric, "p_categories" "jsonb") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."create_public_registration"("p_tournament_id" "uuid", "p_participant_type" "public"."participant_type", "p_display_name" "text", "p_contact_phone" "text", "p_category_id" "uuid" DEFAULT NULL::"uuid", "p_contact_email" "text" DEFAULT NULL::"text", "p_players" "jsonb" DEFAULT NULL::"jsonb", "p_payment_method" "public"."registration_payment_method" DEFAULT 'cash'::"public"."registration_payment_method") RETURNS "uuid"
@@ -951,7 +960,7 @@ $$;
 ALTER FUNCTION "public"."create_public_registration"("p_tournament_id" "uuid", "p_participant_type" "public"."participant_type", "p_display_name" "text", "p_contact_phone" "text", "p_category_id" "uuid", "p_contact_email" "text", "p_players" "jsonb", "p_payment_method" "public"."registration_payment_method") OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."create_public_registration_request"("p_tournament_id" "uuid", "p_participant_type" "public"."participant_type", "p_display_name" "text", "p_contact_phone" "text", "p_category_id" "uuid" DEFAULT NULL::"uuid", "p_contact_email" "text" DEFAULT NULL::"text", "p_players" "jsonb" DEFAULT NULL::"jsonb", "p_payment_method" "public"."registration_payment_method" DEFAULT 'cash'::"public"."registration_payment_method") RETURNS "jsonb"
+CREATE OR REPLACE FUNCTION "public"."create_public_registration_request"("p_tournament_id" "uuid", "p_display_name" "text", "p_contact_phone" "text", "p_category_id" "uuid" DEFAULT NULL::"uuid", "p_contact_email" "text" DEFAULT NULL::"text", "p_payment_method" "public"."registration_payment_method" DEFAULT 'cash'::"public"."registration_payment_method") RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
@@ -965,6 +974,7 @@ declare
   v_email_normalized text;
   v_request_id uuid;
   v_amount numeric;
+  v_participant_type public.participant_type;
   v_verification_code text;
   v_verification_token text;
   v_expires_at timestamptz := now() + interval '30 minutes';
@@ -984,14 +994,6 @@ begin
   v_email_normalized := public.normalize_email(v_email_raw);
   if v_email_normalized is null then
     raise exception 'Contact email is required';
-  end if;
-
-  if p_participant_type = 'team'::public.participant_type then
-    if p_players is null or jsonb_typeof(p_players) <> 'array' or jsonb_array_length(p_players) < 2 then
-      raise exception 'Team must have at least 2 players';
-    end if;
-  else
-    p_players := null;
   end if;
 
   select *
@@ -1026,12 +1028,22 @@ begin
       raise exception 'Category not linked to tournament';
     end if;
 
+    if v_category.participant_type is null then
+      raise exception 'Category participant type is not configured';
+    end if;
+
+    v_participant_type := v_category.participant_type;
     v_amount := coalesce(v_category.price, 0);
   else
     if p_category_id is not null then
       raise exception 'Category is not allowed for this tournament';
     end if;
 
+    if v_tournament.participant_type is null then
+      raise exception 'Tournament participant type is not configured';
+    end if;
+
+    v_participant_type := v_tournament.participant_type;
     v_amount := coalesce(v_tournament.entry_price, 0);
   end if;
 
@@ -1095,13 +1107,13 @@ begin
   values (
     p_tournament_id,
     p_category_id,
-    p_participant_type,
+    v_participant_type,
     v_display_name,
     v_phone_raw,
     v_phone_normalized,
     v_email_raw,
     v_email_normalized,
-    p_players,
+    null,
     p_payment_method,
     extensions.crypt(v_verification_code, extensions.gen_salt('bf')),
     public.sha256_hex(v_verification_token),
@@ -1121,7 +1133,7 @@ end;
 $$;
 
 
-ALTER FUNCTION "public"."create_public_registration_request"("p_tournament_id" "uuid", "p_participant_type" "public"."participant_type", "p_display_name" "text", "p_contact_phone" "text", "p_category_id" "uuid", "p_contact_email" "text", "p_players" "jsonb", "p_payment_method" "public"."registration_payment_method") OWNER TO "postgres";
+ALTER FUNCTION "public"."create_public_registration_request"("p_tournament_id" "uuid", "p_display_name" "text", "p_contact_phone" "text", "p_category_id" "uuid", "p_contact_email" "text", "p_payment_method" "public"."registration_payment_method") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."generate_public_reference"() RETURNS "text"
@@ -1314,6 +1326,47 @@ $$;
 ALTER FUNCTION "public"."normalize_phone"("p_phone" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."prevent_category_registration_config_change"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+declare
+  v_has_active_registrations boolean := false;
+  v_has_pending_requests boolean := false;
+begin
+  if old.participant_type is not distinct from new.participant_type then
+    return new;
+  end if;
+
+  select exists (
+    select 1
+    from public.registrations r
+    where r.category_id = old.id
+      and r.status not in (
+        'cancelled'::public.registration_status,
+        'expired'::public.registration_status
+      )
+  ) into v_has_active_registrations;
+
+  select exists (
+    select 1
+    from public.registration_requests rr
+    where rr.category_id = old.id
+      and rr.consumed_at is null
+      and rr.expires_at > now()
+  ) into v_has_pending_requests;
+
+  if v_has_active_registrations or v_has_pending_requests then
+    raise exception 'Category registration config cannot change after requests or registrations exist';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."prevent_category_registration_config_change"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."prevent_price_change_after_registration"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -1365,6 +1418,49 @@ $$;
 
 
 ALTER FUNCTION "public"."prevent_tournament_entry_price_change_after_registration"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."prevent_tournament_registration_config_change"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+declare
+  v_has_active_registrations boolean := false;
+  v_has_pending_requests boolean := false;
+begin
+  if old.has_categories is not distinct from new.has_categories
+     and old.participant_type is not distinct from new.participant_type
+     and old.payment_method is not distinct from new.payment_method then
+    return new;
+  end if;
+
+  select exists (
+    select 1
+    from public.registrations r
+    where r.tournament_id = old.id
+      and r.status not in (
+        'cancelled'::public.registration_status,
+        'expired'::public.registration_status
+      )
+  ) into v_has_active_registrations;
+
+  select exists (
+    select 1
+    from public.registration_requests rr
+    where rr.tournament_id = old.id
+      and rr.consumed_at is null
+      and rr.expires_at > now()
+  ) into v_has_pending_requests;
+
+  if v_has_active_registrations or v_has_pending_requests then
+    raise exception 'Tournament registration config cannot change after requests or registrations exist';
+  end if;
+
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."prevent_tournament_registration_config_change"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."publish_tournament"("p_tournament_id" "uuid") RETURNS "uuid"
@@ -1426,8 +1522,14 @@ begin
     raise exception 'Tournament max participants are invalid';
   end if;
 
-  if not v_tournament.has_categories and coalesce(v_tournament.entry_price, 0) < 0 then
-    raise exception 'Tournament entry price is invalid';
+  if not v_tournament.has_categories then
+    if v_tournament.participant_type is null then
+      raise exception 'Tournament participant type is required';
+    end if;
+
+    if coalesce(v_tournament.entry_price, 0) < 0 then
+      raise exception 'Tournament entry price is invalid';
+    end if;
   end if;
 
   if v_tournament.has_categories then
@@ -1444,6 +1546,7 @@ begin
     where c.tournament_id = v_tournament.id
       and (
         trim(coalesce(c.name, '')) = ''
+        or c.participant_type is null
         or c.price < 0
         or c.min_participants <= 0
         or (c.max_participants is not null and c.max_participants < c.min_participants)
@@ -1657,8 +1760,14 @@ begin
     raise exception 'Payment method is required';
   end if;
 
-  if not v_tournament.has_categories and coalesce(v_tournament.entry_price, 0) < 0 then
-    raise exception 'Tournament entry price is invalid';
+  if not v_tournament.has_categories then
+    if v_tournament.participant_type is null then
+      raise exception 'Tournament participant type is required';
+    end if;
+
+    if coalesce(v_tournament.entry_price, 0) < 0 then
+      raise exception 'Tournament entry price is invalid';
+    end if;
   end if;
 
   if v_tournament.has_categories then
@@ -1676,6 +1785,7 @@ begin
       where c.tournament_id = v_tournament.id
         and (
           trim(coalesce(c.name, '')) = ''
+          or c.participant_type is null
           or c.price < 0
           or c.min_participants <= 0
           or (c.max_participants is not null and c.max_participants < c.min_participants)
@@ -1810,8 +1920,16 @@ begin
       raise exception 'Category not linked to tournament';
     end if;
 
+    if v_category.participant_type is distinct from v_request.participant_type then
+      raise exception 'Category participant type changed after request creation';
+    end if;
+
     v_amount := coalesce(v_category.price, 0);
   else
+    if v_tournament.participant_type is distinct from v_request.participant_type then
+      raise exception 'Tournament participant type changed after request creation';
+    end if;
+
     v_amount := coalesce(v_tournament.entry_price, 0);
   end if;
 
@@ -1841,7 +1959,7 @@ begin
     v_request.display_name,
     v_request.contact_phone,
     v_request.contact_email,
-    v_request.players
+    null
   )
   returning id into v_participant_id;
 
@@ -1951,6 +2069,7 @@ CREATE TABLE IF NOT EXISTS "public"."categories" (
     "address" "text",
     "prizes" "text",
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "participant_type" "public"."participant_type" NOT NULL,
     CONSTRAINT "categories_participants_check" CHECK ((("min_participants" > 0) AND (("max_participants" IS NULL) OR ("max_participants" >= "min_participants"))))
 );
 
@@ -2057,6 +2176,8 @@ CREATE TABLE IF NOT EXISTS "public"."tournaments" (
     "prize_mode" "public"."prize_mode" DEFAULT 'none'::"public"."prize_mode" NOT NULL,
     "entry_price" numeric DEFAULT 0 NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "participant_type" "public"."participant_type",
+    CONSTRAINT "tournaments_participant_type_consistency_check" CHECK (((("has_categories" = true) AND ("participant_type" IS NULL)) OR (("has_categories" = false) AND ("participant_type" IS NOT NULL)))),
     CONSTRAINT "tournaments_participants_check" CHECK ((("min_participants" > 0) AND (("max_participants" IS NULL) OR ("max_participants" >= "min_participants"))))
 );
 
@@ -2154,6 +2275,14 @@ CREATE OR REPLACE TRIGGER "check_registration_before_insert" BEFORE INSERT ON "p
 
 
 CREATE OR REPLACE TRIGGER "check_tournament_entry_price_before_update" BEFORE UPDATE OF "entry_price" ON "public"."tournaments" FOR EACH ROW EXECUTE FUNCTION "public"."prevent_tournament_entry_price_change_after_registration"();
+
+
+
+CREATE OR REPLACE TRIGGER "prevent_registration_config_change_on_categories" BEFORE UPDATE OF "participant_type" ON "public"."categories" FOR EACH ROW EXECUTE FUNCTION "public"."prevent_category_registration_config_change"();
+
+
+
+CREATE OR REPLACE TRIGGER "prevent_registration_config_change_on_tournaments" BEFORE UPDATE OF "has_categories", "participant_type", "payment_method" ON "public"."tournaments" FOR EACH ROW EXECUTE FUNCTION "public"."prevent_tournament_registration_config_change"();
 
 
 
@@ -2354,9 +2483,9 @@ GRANT ALL ON FUNCTION "public"."cleanup_old_drafts"("days_old" integer) TO "serv
 
 
 
-GRANT ALL ON FUNCTION "public"."create_and_publish_tournament"("p_title" "text", "p_description" "text", "p_poster_url" "text", "p_province" "text", "p_address" "text", "p_date" timestamp without time zone, "p_registration_deadline" timestamp without time zone, "p_is_public" boolean, "p_has_categories" boolean, "p_min_participants" integer, "p_max_participants" integer, "p_payment_method" "public"."payment_method_enum", "p_prize_mode" "public"."prize_mode", "p_prizes" "text", "p_rules" "text", "p_entry_price" numeric, "p_categories" "jsonb") TO "anon";
-GRANT ALL ON FUNCTION "public"."create_and_publish_tournament"("p_title" "text", "p_description" "text", "p_poster_url" "text", "p_province" "text", "p_address" "text", "p_date" timestamp without time zone, "p_registration_deadline" timestamp without time zone, "p_is_public" boolean, "p_has_categories" boolean, "p_min_participants" integer, "p_max_participants" integer, "p_payment_method" "public"."payment_method_enum", "p_prize_mode" "public"."prize_mode", "p_prizes" "text", "p_rules" "text", "p_entry_price" numeric, "p_categories" "jsonb") TO "authenticated";
-GRANT ALL ON FUNCTION "public"."create_and_publish_tournament"("p_title" "text", "p_description" "text", "p_poster_url" "text", "p_province" "text", "p_address" "text", "p_date" timestamp without time zone, "p_registration_deadline" timestamp without time zone, "p_is_public" boolean, "p_has_categories" boolean, "p_min_participants" integer, "p_max_participants" integer, "p_payment_method" "public"."payment_method_enum", "p_prize_mode" "public"."prize_mode", "p_prizes" "text", "p_rules" "text", "p_entry_price" numeric, "p_categories" "jsonb") TO "service_role";
+GRANT ALL ON FUNCTION "public"."create_and_publish_tournament"("p_title" "text", "p_description" "text", "p_poster_url" "text", "p_province" "text", "p_address" "text", "p_date" timestamp without time zone, "p_registration_deadline" timestamp without time zone, "p_is_public" boolean, "p_has_categories" boolean, "p_participant_type" "public"."participant_type", "p_min_participants" integer, "p_max_participants" integer, "p_payment_method" "public"."payment_method_enum", "p_prize_mode" "public"."prize_mode", "p_prizes" "text", "p_rules" "text", "p_entry_price" numeric, "p_categories" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_and_publish_tournament"("p_title" "text", "p_description" "text", "p_poster_url" "text", "p_province" "text", "p_address" "text", "p_date" timestamp without time zone, "p_registration_deadline" timestamp without time zone, "p_is_public" boolean, "p_has_categories" boolean, "p_participant_type" "public"."participant_type", "p_min_participants" integer, "p_max_participants" integer, "p_payment_method" "public"."payment_method_enum", "p_prize_mode" "public"."prize_mode", "p_prizes" "text", "p_rules" "text", "p_entry_price" numeric, "p_categories" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_and_publish_tournament"("p_title" "text", "p_description" "text", "p_poster_url" "text", "p_province" "text", "p_address" "text", "p_date" timestamp without time zone, "p_registration_deadline" timestamp without time zone, "p_is_public" boolean, "p_has_categories" boolean, "p_participant_type" "public"."participant_type", "p_min_participants" integer, "p_max_participants" integer, "p_payment_method" "public"."payment_method_enum", "p_prize_mode" "public"."prize_mode", "p_prizes" "text", "p_rules" "text", "p_entry_price" numeric, "p_categories" "jsonb") TO "service_role";
 
 
 
@@ -2364,7 +2493,9 @@ GRANT ALL ON FUNCTION "public"."create_public_registration"("p_tournament_id" "u
 
 
 
-GRANT ALL ON FUNCTION "public"."create_public_registration_request"("p_tournament_id" "uuid", "p_participant_type" "public"."participant_type", "p_display_name" "text", "p_contact_phone" "text", "p_category_id" "uuid", "p_contact_email" "text", "p_players" "jsonb", "p_payment_method" "public"."registration_payment_method") TO "service_role";
+GRANT ALL ON FUNCTION "public"."create_public_registration_request"("p_tournament_id" "uuid", "p_display_name" "text", "p_contact_phone" "text", "p_category_id" "uuid", "p_contact_email" "text", "p_payment_method" "public"."registration_payment_method") TO "anon";
+GRANT ALL ON FUNCTION "public"."create_public_registration_request"("p_tournament_id" "uuid", "p_display_name" "text", "p_contact_phone" "text", "p_category_id" "uuid", "p_contact_email" "text", "p_payment_method" "public"."registration_payment_method") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."create_public_registration_request"("p_tournament_id" "uuid", "p_display_name" "text", "p_contact_phone" "text", "p_category_id" "uuid", "p_contact_email" "text", "p_payment_method" "public"."registration_payment_method") TO "service_role";
 
 
 
@@ -2398,6 +2529,12 @@ GRANT ALL ON FUNCTION "public"."normalize_phone"("p_phone" "text") TO "service_r
 
 
 
+GRANT ALL ON FUNCTION "public"."prevent_category_registration_config_change"() TO "anon";
+GRANT ALL ON FUNCTION "public"."prevent_category_registration_config_change"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."prevent_category_registration_config_change"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."prevent_price_change_after_registration"() TO "anon";
 GRANT ALL ON FUNCTION "public"."prevent_price_change_after_registration"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."prevent_price_change_after_registration"() TO "service_role";
@@ -2407,6 +2544,12 @@ GRANT ALL ON FUNCTION "public"."prevent_price_change_after_registration"() TO "s
 GRANT ALL ON FUNCTION "public"."prevent_tournament_entry_price_change_after_registration"() TO "anon";
 GRANT ALL ON FUNCTION "public"."prevent_tournament_entry_price_change_after_registration"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."prevent_tournament_entry_price_change_after_registration"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."prevent_tournament_registration_config_change"() TO "anon";
+GRANT ALL ON FUNCTION "public"."prevent_tournament_registration_config_change"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."prevent_tournament_registration_config_change"() TO "service_role";
 
 
 

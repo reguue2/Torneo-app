@@ -8,10 +8,12 @@ import { createClient } from "@/lib/supabase/client"
 type StepId = "basic" | "structure" | "pricing" | "details" | "review"
 type PrizeMode = "none" | "global" | "per_category"
 type PaymentMethod = "cash" | "online" | "both"
+type ParticipantType = "individual" | "team"
 
 type CategoryDraft = {
   id: string
   name: string
+  participant_type: ParticipantType | null
   price: string
   min_participants: string
   max_participants: string
@@ -30,6 +32,7 @@ type DraftState = {
   registration_deadline: string
   is_public: boolean
   has_categories: boolean
+  participant_type: ParticipantType | null
   min_participants: string
   max_participants: string
   noMax: boolean
@@ -52,6 +55,7 @@ const STORAGE_KEY_PREFIX = "create-tournament-draftless-wizard-v1"
 const EMPTY_CATEGORY: CategoryDraft = {
   id: "",
   name: "",
+  participant_type: null,
   price: "",
   min_participants: "",
   max_participants: "",
@@ -70,6 +74,7 @@ const INITIAL_DRAFT: DraftState = {
   registration_deadline: "",
   is_public: true,
   has_categories: true,
+  participant_type: null,
   min_participants: "1",
   max_participants: "",
   noMax: true,
@@ -141,6 +146,12 @@ function mapStepTitle(step: StepId) {
   if (step === "pricing") return "Cupos y precios"
   if (step === "details") return "Detalles y pagos"
   return "Revisión final"
+}
+
+function participantTypeLabel(value: ParticipantType | null | undefined) {
+  if (value === "individual") return "Individual"
+  if (value === "team") return "Equipos"
+  return "Por definir"
 }
 
 function getVisibleSteps(_hasCategories: boolean): StepId[] {
@@ -268,6 +279,7 @@ export default function CreateTournamentForm() {
       draft.categories.map((category) => ({
         name: category.name.trim(),
         price: Number(category.price || 0),
+        participant_type: category.participant_type,
         min_participants: Number(category.min_participants || 0),
         max_participants: category.noMax ? null : Number(category.max_participants || 0),
         start_at: category.start_at || null,
@@ -387,6 +399,11 @@ export default function CreateTournamentForm() {
           next[`category-${index}-name`] = "El nombre de la categoría es obligatorio."
         }
 
+        if (!category.participant_type) {
+          next[`category-${index}-participant_type`] =
+            "Debes indicar si la categoría es individual o por equipos."
+        }
+
         if (category.price.trim() === "" || Number(category.price) < 0) {
           next[`category-${index}-price`] =
             "El precio de la categoría es obligatorio y no puede ser negativo."
@@ -397,7 +414,7 @@ export default function CreateTournamentForm() {
           Number(category.min_participants) < 1
         ) {
           next[`category-${index}-min`] =
-            "El mínimo de participantes de la categoría debe ser al menos 1."
+            "El mínimo de inscripciones de la categoría debe ser al menos 1."
         }
 
         if (
@@ -410,8 +427,13 @@ export default function CreateTournamentForm() {
         }
       })
     } else {
+      if (!draft.participant_type) {
+        next.participant_type =
+          "Debes indicar si el torneo se inscribe de forma individual o por equipos."
+      }
+
       if (draft.min_participants.trim() === "" || Number(draft.min_participants) < 1) {
-        next.min_participants = "El mínimo de participantes debe ser al menos 1."
+        next.min_participants = "El mínimo de inscripciones debe ser al menos 1."
       }
 
       if (
@@ -483,6 +505,10 @@ export default function CreateTournamentForm() {
     const next: StepErrors = {}
 
     if (!categoryDraft.name.trim()) next.category_name = "El nombre es obligatorio."
+    if (!categoryDraft.participant_type) {
+      next.category_participant_type =
+        "Debes indicar si la categoría es individual o por equipos."
+    }
     if (categoryDraft.price.trim() === "" || Number(categoryDraft.price) < 0) {
       next.category_price = "El precio es obligatorio y no puede ser negativo."
     }
@@ -532,6 +558,7 @@ export default function CreateTournamentForm() {
     setErrors((prev) => {
       const nextErrors = { ...prev }
       delete nextErrors.category_name
+      delete nextErrors.category_participant_type
       delete nextErrors.category_price
       delete nextErrors.category_min
       delete nextErrors.category_max
@@ -716,6 +743,7 @@ export default function CreateTournamentForm() {
         />
         <input type="hidden" name="is_public" value={String(draft.is_public)} />
         <input type="hidden" name="has_categories" value={String(draft.has_categories)} />
+        <input type="hidden" name="participant_type" value={draft.participant_type ?? ""} />
         <input type="hidden" name="payment_method" value={draft.payment_method} />
         <input type="hidden" name="prize_mode" value={draft.prize_mode} />
         <input type="hidden" name="prizes" value={draft.prizes} />
@@ -887,7 +915,13 @@ export default function CreateTournamentForm() {
             <div className="grid gap-4 md:grid-cols-2">
               <button
                 type="button"
-                onClick={() => updateDraft("has_categories", true)}
+                onClick={() =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    has_categories: true,
+                    participant_type: null,
+                  }))
+                }
                 className={`rounded-2xl border p-5 text-left transition ${
                   draft.has_categories
                     ? "border-indigo-600 bg-indigo-50"
@@ -896,7 +930,7 @@ export default function CreateTournamentForm() {
               >
                 <p className="text-lg font-semibold text-gray-900">Con categorías</p>
                 <p className="mt-2 text-sm text-gray-500">
-                  Precio, cupos y premios pueden depender de cada categoría.
+                  Precio, cupos, premios y formato de inscripción pueden depender de cada categoría.
                 </p>
               </button>
 
@@ -911,10 +945,19 @@ export default function CreateTournamentForm() {
               >
                 <p className="text-lg font-semibold text-gray-900">Sin categorías</p>
                 <p className="mt-2 text-sm text-gray-500">
-                  Todo el torneo comparte un único precio y una única bolsa de cupos.
+                  Todo el torneo comparte un único precio, una única bolsa de cupos y un único formato de inscripción.
                 </p>
               </button>
             </div>
+
+            {draft.has_categories && (
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 text-sm text-gray-600">
+                <p className="font-medium text-gray-900">Qué se configura después</p>
+                <p className="mt-2">
+                  En el siguiente paso definirás cupos, precio y el formato de inscripción de cada categoría.
+                </p>
+              </div>
+            )}
           </section>
         )}
 
@@ -923,7 +966,7 @@ export default function CreateTournamentForm() {
             <div>
               <h2 className="text-xl font-semibold text-gray-900">Cupos y precios</h2>
               <p className="mt-1 text-sm text-gray-500">
-                Configura capacidad y precio del torneo o de cada categoría.
+                Configura cupos e importe del torneo o de cada categoría.
               </p>
             </div>
 
@@ -947,6 +990,7 @@ export default function CreateTournamentForm() {
                                 {category.name}
                               </h3>
                               <div className="mt-2 space-y-1 text-sm text-gray-600">
+                                <p>Formato: {participantTypeLabel(category.participant_type)}</p>
                                 <p>Precio: {formatMoney(category.price)}</p>
                                 <p>Mínimo: {category.min_participants}</p>
                                 <p>
@@ -1007,6 +1051,46 @@ export default function CreateTournamentForm() {
                       {errors.category_name && <p className="error-text">{errors.category_name}</p>}
                     </div>
 
+                    <div>
+                      <label className="label">Formato de inscripción</label>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {[
+                          {
+                            value: "individual" as const,
+                            label: "Individual",
+                            description: "Cada inscripción corresponde a una persona.",
+                          },
+                          {
+                            value: "team" as const,
+                            label: "Equipos",
+                            description: "Cada inscripción corresponde a un equipo.",
+                          },
+                        ].map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() =>
+                              setCategoryDraft((prev) => ({
+                                ...prev,
+                                participant_type: option.value,
+                              }))
+                            }
+                            className={`rounded-2xl border p-4 text-left transition ${
+                              categoryDraft.participant_type === option.value
+                                ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                                : "border-gray-200 bg-white hover:border-gray-300"
+                            }`}
+                          >
+                            <p className="font-medium">{option.label}</p>
+                            <p className="mt-1 text-sm text-gray-500">{option.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                      {errors.category_participant_type && (
+                        <p className="error-text">{errors.category_participant_type}</p>
+                      )}
+                    </div>
+
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>
                         <label className="label">Precio</label>
@@ -1024,7 +1108,7 @@ export default function CreateTournamentForm() {
                       </div>
 
                       <div>
-                        <label className="label">Mínimo participantes</label>
+                        <label className="label">Mínimo de inscripciones</label>
                         <input
                           className="input"
                           inputMode="numeric"
@@ -1042,7 +1126,7 @@ export default function CreateTournamentForm() {
 
                     <div>
                       <div className="flex items-center justify-between">
-                        <label className="label">Máximo participantes</label>
+                        <label className="label">Máximo de inscripciones</label>
                         <label className="inline-flex items-center gap-2 text-sm text-gray-600">
                           <input
                             type="checkbox"
@@ -1131,60 +1215,95 @@ export default function CreateTournamentForm() {
                 </div>
               </div>
             ) : (
-              <div className="grid gap-5 md:grid-cols-3">
+              <div className="space-y-5">
                 <div>
-                  <label className="label">Mínimo participantes</label>
-                  <input
-                    className="input"
-                    inputMode="numeric"
-                    value={draft.min_participants}
-                    onChange={(e) => updateDraft("min_participants", e.target.value)}
-                  />
-                  {errors.min_participants && (
-                    <p className="error-text">{errors.min_participants}</p>
-                  )}
+                  <label className="label">Formato de inscripción</label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {[
+                      {
+                        value: "individual" as const,
+                        label: "Individual",
+                        description: "Cada inscripción corresponde a una persona.",
+                      },
+                      {
+                        value: "team" as const,
+                        label: "Equipos",
+                        description: "Cada inscripción corresponde a un equipo.",
+                      },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => updateDraft("participant_type", option.value)}
+                        className={`rounded-2xl border p-4 text-left transition ${
+                          draft.participant_type === option.value
+                            ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                            : "border-gray-200 bg-white hover:border-gray-300"
+                        }`}
+                      >
+                        <p className="font-medium">{option.label}</p>
+                        <p className="mt-1 text-sm text-gray-500">{option.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {errors.participant_type && <p className="error-text">{errors.participant_type}</p>}
                 </div>
 
-                <div>
-                  <div className="flex items-center justify-between">
-                    <label className="label">Máximo participantes</label>
-                    <label className="inline-flex items-center gap-2 text-sm text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={draft.noMax}
-                        onChange={(e) =>
-                          setDraft((prev) => ({
-                            ...prev,
-                            noMax: e.target.checked,
-                            max_participants: e.target.checked ? "" : prev.max_participants,
-                          }))
-                        }
-                      />
-                      Sin máximo
-                    </label>
+                <div className="grid gap-5 md:grid-cols-3">
+                  <div>
+                    <label className="label">Mínimo de inscripciones</label>
+                    <input
+                      className="input"
+                      inputMode="numeric"
+                      value={draft.min_participants}
+                      onChange={(e) => updateDraft("min_participants", e.target.value)}
+                    />
+                    {errors.min_participants && (
+                      <p className="error-text">{errors.min_participants}</p>
+                    )}
                   </div>
 
-                  <input
-                    className="input"
-                    inputMode="numeric"
-                    disabled={draft.noMax}
-                    value={draft.max_participants}
-                    onChange={(e) => updateDraft("max_participants", e.target.value)}
-                  />
-                  {errors.max_participants && (
-                    <p className="error-text">{errors.max_participants}</p>
-                  )}
-                </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <label className="label">Máximo de inscripciones</label>
+                      <label className="inline-flex items-center gap-2 text-sm text-gray-600">
+                        <input
+                          type="checkbox"
+                          checked={draft.noMax}
+                          onChange={(e) =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              noMax: e.target.checked,
+                              max_participants: e.target.checked ? "" : prev.max_participants,
+                            }))
+                          }
+                        />
+                        Sin máximo
+                      </label>
+                    </div>
 
-                <div>
-                  <label className="label">Precio de inscripción</label>
-                  <input
-                    className="input"
-                    inputMode="decimal"
-                    value={draft.entry_price}
-                    onChange={(e) => updateDraft("entry_price", e.target.value)}
-                  />
-                  {errors.entry_price && <p className="error-text">{errors.entry_price}</p>}
+                    <input
+                      className="input"
+                      inputMode="numeric"
+                      disabled={draft.noMax}
+                      value={draft.max_participants}
+                      onChange={(e) => updateDraft("max_participants", e.target.value)}
+                    />
+                    {errors.max_participants && (
+                      <p className="error-text">{errors.max_participants}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="label">Precio de inscripción</label>
+                    <input
+                      className="input"
+                      inputMode="decimal"
+                      value={draft.entry_price}
+                      onChange={(e) => updateDraft("entry_price", e.target.value)}
+                    />
+                    {errors.entry_price && <p className="error-text">{errors.entry_price}</p>}
+                  </div>
                 </div>
               </div>
             )}
@@ -1289,7 +1408,7 @@ export default function CreateTournamentForm() {
                   <p>
                     El online sigue visible en producto, aunque durante desarrollo esté simulado.
                   </p>
-                  <p>Si el torneo tiene categorías, ellas mandan en precio y cupos.</p>
+                  <p>Si el torneo tiene categorías, ellas mandan en precio, cupos y formato de inscripción.</p>
                 </div>
               </div>
             </div>
@@ -1345,6 +1464,12 @@ export default function CreateTournamentForm() {
                           ? "Solo online"
                           : "Efectivo y online"}
                     </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Formato:</span>{" "}
+                      {draft.has_categories
+                        ? "Según categoría"
+                        : participantTypeLabel(draft.participant_type)}
+                    </p>
                   </div>
                 </div>
 
@@ -1359,6 +1484,7 @@ export default function CreateTournamentForm() {
                         >
                           <p className="font-medium text-gray-900">{category.name}</p>
                           <div className="mt-2 space-y-1 text-sm text-gray-600">
+                            <p>Formato: {participantTypeLabel(category.participant_type)}</p>
                             <p>Precio: {formatMoney(category.price)}</p>
                             <p>Mínimo: {category.min_participants}</p>
                             <p>Máximo: {category.noMax ? "Sin máximo" : category.max_participants}</p>
@@ -1372,6 +1498,7 @@ export default function CreateTournamentForm() {
                   <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5">
                     <h3 className="text-lg font-semibold text-gray-900">Inscripción general</h3>
                     <div className="mt-4 space-y-2 text-sm text-gray-600">
+                      <p>Formato: {participantTypeLabel(draft.participant_type)}</p>
                       <p>Precio: {formatMoney(draft.entry_price)}</p>
                       <p>Mínimo: {draft.min_participants}</p>
                       <p>Máximo: {draft.noMax ? "Sin máximo" : draft.max_participants}</p>

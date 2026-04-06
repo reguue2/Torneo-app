@@ -98,7 +98,7 @@ export default async function GestionarTorneoPage({
   if (participantIds.length > 0) {
     const { data: participantsData, error: participantsError } = await supabase
       .from("participants")
-      .select("id,type,display_name,contact_phone,contact_email,players")
+      .select("id,type,display_name,contact_phone,contact_email")
       .in("id", participantIds)
       .returns<ParticipantRow[]>()
 

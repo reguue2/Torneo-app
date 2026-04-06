@@ -4,18 +4,19 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 import { formatMoney } from "@/lib/tournaments/domain"
 
+type ParticipantType = "individual" | "team"
+type RegistrationPaymentMethod = "cash" | "online"
+
 type Category = {
   id: string
   name: string
+  participant_type: ParticipantType
   price: number
   min_participants: number
   max_participants: number | null
   start_at: string | null
   address: string | null
 }
-
-type ParticipantType = "individual" | "team"
-type RegistrationPaymentMethod = "cash" | "online"
 
 type RegistrationRequestResult = {
   request_id: string
@@ -28,6 +29,16 @@ type RegistrationRequestResult = {
 
 function isValidEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function getInitialPaymentMethod(paymentMethod: "cash" | "online" | "both" | null) {
+  return paymentMethod === "online" ? "online" : "cash"
+}
+
+function getParticipantTypeLabel(value: ParticipantType | null) {
+  if (value === "team") return "Equipos"
+  if (value === "individual") return "Individual"
+  return "Por definir"
 }
 
 function mapErrorMessage(message: string) {
@@ -45,6 +56,12 @@ function mapErrorMessage(message: string) {
   }
   if (message.includes("Category not linked to tournament")) {
     return "La categoría seleccionada no es válida."
+  }
+  if (message.includes("Tournament participant type is not configured")) {
+    return "El organizador todavía no ha configurado el formato de inscripción de este torneo."
+  }
+  if (message.includes("Category participant type is not configured")) {
+    return "La categoría seleccionada todavía no tiene configurado el formato de inscripción."
   }
   if (message.includes("Tournament is not open for registration")) {
     return "Este torneo ya no admite inscripciones."
@@ -70,9 +87,6 @@ function mapErrorMessage(message: string) {
   if (message.includes("A verification request is already pending for this email or phone")) {
     return "Ya existe una solicitud pendiente de validar con ese email o teléfono."
   }
-  if (message.includes("Team must have at least 2 players")) {
-    return "El equipo debe tener al menos 2 jugadores."
-  }
 
   return message
 }
@@ -94,6 +108,7 @@ export default function RegisterForm({
   tournamentId,
   tournamentTitle,
   hasCategories,
+  tournamentParticipantType,
   categories,
   entryPrice,
   paymentMethod,
@@ -101,13 +116,13 @@ export default function RegisterForm({
   tournamentId: string
   tournamentTitle: string
   hasCategories: boolean
+  tournamentParticipantType: ParticipantType | null
   categories: Category[]
   entryPrice: number
   paymentMethod: "cash" | "online" | "both" | null
 }) {
-  const [participantType, setParticipantType] = useState<ParticipantType>("team")
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<RegistrationPaymentMethod>(
-    paymentMethod === "online" ? "online" : "cash"
+    getInitialPaymentMethod(paymentMethod)
   )
   const [categoryId, setCategoryId] = useState<string>(
     hasCategories && categories.length === 1 ? categories[0].id : ""
@@ -115,7 +130,6 @@ export default function RegisterForm({
   const [displayName, setDisplayName] = useState("")
   const [contactPhone, setContactPhone] = useState("")
   const [contactEmail, setContactEmail] = useState("")
-  const [playersCount, setPlayersCount] = useState("5")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [requestResult, setRequestResult] = useState<RegistrationRequestResult | null>(null)
@@ -124,6 +138,14 @@ export default function RegisterForm({
     if (!hasCategories) return null
     return categories.find((category) => category.id === categoryId) ?? null
   }, [hasCategories, categories, categoryId])
+
+  const effectiveParticipantType = useMemo<ParticipantType | null>(() => {
+    if (hasCategories) {
+      return selectedCategory?.participant_type ?? null
+    }
+
+    return tournamentParticipantType
+  }, [hasCategories, selectedCategory, tournamentParticipantType])
 
   const amount = useMemo(() => {
     if (hasCategories) {
@@ -137,8 +159,14 @@ export default function RegisterForm({
       return "Debes seleccionar una categoría."
     }
 
+    if (!effectiveParticipantType) {
+      return hasCategories
+        ? "La categoría seleccionada todavía no tiene configurado el formato de inscripción."
+        : "El organizador todavía no ha configurado el formato de inscripción de este torneo."
+    }
+
     if (!displayName.trim()) {
-      return participantType === "team"
+      return effectiveParticipantType === "team"
         ? "El nombre del equipo es obligatorio."
         : "El nombre del participante es obligatorio."
     }
@@ -155,24 +183,7 @@ export default function RegisterForm({
       return "Introduce un email válido."
     }
 
-    if (participantType === "team") {
-      const total = Number(playersCount)
-      if (!Number.isInteger(total) || total < 2) {
-        return "El número de jugadores del equipo debe ser al menos 2."
-      }
-    }
-
     return null
-  }
-
-  const buildPlayersPayload = () => {
-    if (participantType !== "team") return null
-
-    const total = Number(playersCount)
-
-    return Array.from({ length: total }, (_, index) => ({
-      slot: index + 1,
-    }))
   }
 
   const resetForm = () => {
@@ -180,9 +191,8 @@ export default function RegisterForm({
     setDisplayName("")
     setContactPhone("")
     setContactEmail("")
-    setPlayersCount("5")
     setError(null)
-    setSelectedPaymentMethod(paymentMethod === "online" ? "online" : "cash")
+    setSelectedPaymentMethod(getInitialPaymentMethod(paymentMethod))
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -206,11 +216,9 @@ export default function RegisterForm({
         body: JSON.stringify({
           tournamentId,
           categoryId: hasCategories ? categoryId || null : null,
-          participantType,
           displayName: displayName.trim(),
           contactPhone: contactPhone.trim(),
           contactEmail: contactEmail.trim(),
-          players: buildPlayersPayload(),
           paymentMethod: selectedPaymentMethod,
         }),
       })
@@ -252,9 +260,14 @@ export default function RegisterForm({
             <span className="font-medium text-gray-900">Torneo:</span> {tournamentTitle}
           </p>
           <p className="mt-2">
-            <span className="font-medium text-gray-900">Inscripción:</span>{" "}
-            {participantType === "team" ? "Equipo" : "Individual"}
+            <span className="font-medium text-gray-900">Formato:</span>{" "}
+            {getParticipantTypeLabel(effectiveParticipantType)}
           </p>
+          {selectedCategory && (
+            <p className="mt-2">
+              <span className="font-medium text-gray-900">Categoría:</span> {selectedCategory.name}
+            </p>
+          )}
           <p className="mt-2">
             <span className="font-medium text-gray-900">Nombre:</span> {displayName}
           </p>
@@ -315,50 +328,14 @@ export default function RegisterForm({
       )}
 
       <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-        <p className="text-sm font-medium text-gray-900">Método de inscripción</p>
+        <p className="text-sm font-medium text-gray-900">Cómo funciona la inscripción</p>
         <p className="mt-1 text-sm text-gray-600">
           Primero creas una solicitud y solo después, cuando el email esté verificado, se
           genera la inscripción real.
         </p>
       </div>
 
-      <div className="space-y-3">
-        <label className="label">
-          Tipo de inscripción <span className="text-red-500">*</span>
-        </label>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => setParticipantType("individual")}
-            className={`rounded-2xl border p-4 text-left transition ${
-              participantType === "individual"
-                ? "border-indigo-600 bg-indigo-50"
-                : "border-gray-200 bg-white hover:bg-gray-50"
-            }`}
-          >
-            <p className="font-medium text-gray-900">Individual</p>
-            <p className="mt-1 text-sm text-gray-500">Inscripción para una sola persona.</p>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setParticipantType("team")}
-            className={`rounded-2xl border p-4 text-left transition ${
-              participantType === "team"
-                ? "border-indigo-600 bg-indigo-50"
-                : "border-gray-200 bg-white hover:bg-gray-50"
-            }`}
-          >
-            <p className="font-medium text-gray-900">Equipo</p>
-            <p className="mt-1 text-sm text-gray-500">
-              Inscripción por nombre de equipo y número de jugadores.
-            </p>
-          </button>
-        </div>
-      </div>
-
-      {paymentMethod === "both" && (
+      {paymentMethod === "both" ? (
         <div className="space-y-3">
           <label className="label">
             Canal de pago <span className="text-red-500">*</span>
@@ -396,62 +373,65 @@ export default function RegisterForm({
             </button>
           </div>
         </div>
-      )}
+      ) : paymentMethod ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-700">
+          <p>
+            <span className="font-medium text-gray-900">Canal de pago configurado:</span>{" "}
+            {paymentMethod === "cash" ? "Solo efectivo" : "Solo online"}
+          </p>
+        </div>
+      ) : null}
 
       {hasCategories && (
-        <div>
+        <div className="space-y-3">
           <label className="label">
             Categoría <span className="text-red-500">*</span>
           </label>
           <select
             className="input"
             value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
+            onChange={(event) => setCategoryId(event.target.value)}
           >
             <option value="">Selecciona una categoría</option>
             {categories.map((category) => (
               <option key={category.id} value={category.id}>
-                {category.name} · {formatMoney(category.price)}
+                {category.name} · {getParticipantTypeLabel(category.participant_type)} · {formatMoney(category.price)}
               </option>
             ))}
           </select>
         </div>
       )}
 
+      <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-700">
+        <p>
+          <span className="font-medium text-gray-900">Formato de inscripción:</span>{" "}
+          {getParticipantTypeLabel(effectiveParticipantType)}
+        </p>
+        <p className="mt-2 text-gray-500">
+          {effectiveParticipantType === "team"
+            ? "Esta inscripción representa a un equipo. Solo pediremos el nombre del equipo y el contacto de quien realiza la inscripción."
+            : effectiveParticipantType === "individual"
+              ? "Esta inscripción representa a una sola persona."
+              : hasCategories
+                ? "Selecciona una categoría para ver qué formato de inscripción aplica."
+                : "El organizador todavía no ha configurado el formato de inscripción."}
+        </p>
+      </div>
+
       <div>
         <label className="label">
-          {participantType === "team" ? "Nombre del equipo" : "Nombre completo"}{" "}
+          {effectiveParticipantType === "team" ? "Nombre del equipo" : "Nombre completo"}{" "}
           <span className="text-red-500">*</span>
         </label>
         <input
           className="input"
           value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
+          onChange={(event) => setDisplayName(event.target.value)}
           placeholder={
-            participantType === "team" ? "Ej: FC Warriors" : "Ej: Diego Martínez"
+            effectiveParticipantType === "team" ? "Ej: FC Warriors" : "Ej: Diego Martínez"
           }
         />
       </div>
-
-      {participantType === "team" && (
-        <div>
-          <label className="label">
-            Número de jugadores <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="number"
-            min={2}
-            className="input no-spin"
-            value={playersCount}
-            onChange={(e) => setPlayersCount(e.target.value)}
-            placeholder="Ej: 5"
-          />
-          <p className="mt-2 text-xs text-gray-500">
-            De momento solo pedimos la cantidad. Los nombres de jugadores no se solicitan en
-            esta fase.
-          </p>
-        </div>
-      )}
 
       <div className="grid gap-5 sm:grid-cols-2">
         <div>
@@ -461,7 +441,7 @@ export default function RegisterForm({
           <input
             className="input"
             value={contactPhone}
-            onChange={(e) => setContactPhone(e.target.value)}
+            onChange={(event) => setContactPhone(event.target.value)}
             placeholder="Ej: 612345678"
           />
         </div>
@@ -473,8 +453,10 @@ export default function RegisterForm({
           <input
             className="input"
             value={contactEmail}
-            onChange={(e) => setContactEmail(e.target.value)}
-            placeholder="Ej: equipo@correo.com"
+            onChange={(event) => setContactEmail(event.target.value)}
+            placeholder={
+              effectiveParticipantType === "team" ? "Ej: equipo@correo.com" : "Ej: jugador@correo.com"
+            }
           />
           <p className="mt-2 text-xs text-gray-500">
             Lo usamos para validar la solicitud antes de crear la inscripción.

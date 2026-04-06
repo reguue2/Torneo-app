@@ -63,7 +63,6 @@ export type ParticipantRow = {
   display_name: string
   contact_phone: string
   contact_email: string | null
-  players: unknown
 }
 
 export type PaymentRow = {

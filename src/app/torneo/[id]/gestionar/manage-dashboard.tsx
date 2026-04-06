@@ -26,7 +26,6 @@ type RegistrationView = {
   category: CategoryRow | null
   payment: PaymentRow | null
   amount: number
-  playersCount: number | null
 }
 
 type ConfigForm = {
@@ -79,10 +78,6 @@ function formatMoney(value: number | null | undefined) {
   return `${text}€`
 }
 
-function countPlayers(players: unknown) {
-  if (!Array.isArray(players)) return null
-  return players.length
-}
 
 function getRegistrationAmount(
   registration: RegistrationRow,
@@ -445,7 +440,6 @@ export default function ManageDashboard({
           category,
           payment: latestPayment,
           amount: getRegistrationAmount(registration, tournament, category),
-          playersCount: countPlayers(participant?.players ?? null),
         }
       })
       .sort((a, b) => {
@@ -941,9 +935,7 @@ export default function ManageDashboard({
                                 </div>
 
                                 <div className="mt-1 text-xs text-gray-500">
-                                  {view.participant?.type === "team"
-                                    ? `Equipo${view.playersCount ? ` · ${view.playersCount} jugadores` : ""}`
-                                    : "Individual"}
+                                  {view.participant?.type === "team" ? "Equipo" : "Individual"}
                                 </div>
 
                                 {view.category && (

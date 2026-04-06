@@ -7,11 +7,9 @@ import type { Json } from "@/types/database"
 const CreatePublicRegistrationRequestSchema = z.object({
   tournamentId: z.string().uuid(),
   categoryId: z.string().uuid().nullable(),
-  participantType: z.enum(["individual", "team"]),
   displayName: z.string().trim().min(1),
   contactPhone: z.string().trim().min(1),
   contactEmail: z.string().trim().email(),
-  players: z.array(z.record(z.string(), z.unknown())).nullable(),
   paymentMethod: z.enum(["cash", "online"]),
 })
 
@@ -105,11 +103,9 @@ export async function POST(request: Request) {
     const { data, error } = await supabase.rpc("create_public_registration_request", {
       p_tournament_id: parsed.data.tournamentId,
       p_category_id: parsed.data.categoryId ?? undefined,
-      p_participant_type: parsed.data.participantType,
       p_display_name: parsed.data.displayName,
       p_contact_phone: parsed.data.contactPhone,
       p_contact_email: parsed.data.contactEmail,
-      p_players: (parsed.data.players ?? undefined) as Json | undefined,
       p_payment_method: parsed.data.paymentMethod,
     })
 

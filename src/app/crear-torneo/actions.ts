@@ -13,11 +13,12 @@ export type CreateTournamentActionState = {
 const CategorySchema = z
   .object({
     name: z.string().trim().min(1, "El nombre de la categoría es obligatorio."),
+    participant_type: z.enum(["individual", "team"]),
     price: z.coerce.number().min(0, "El precio de la categoría no puede ser negativo."),
     min_participants: z.coerce
       .number()
       .int()
-      .min(1, "El mínimo de participantes de la categoría debe ser al menos 1."),
+      .min(1, "El mínimo de inscripciones de la categoría debe ser al menos 1."),
     max_participants: z.union([z.coerce.number().int().min(1), z.null()]),
     start_at: z.string().nullable(),
     address: z.string().nullable(),
@@ -31,7 +32,7 @@ const CategorySchema = z
       ctx.addIssue({
         code: "custom",
         message:
-          "El máximo de participantes de la categoría no puede ser menor que el mínimo.",
+          "El máximo de inscripciones de la categoría no puede ser menor que el mínimo.",
         path: ["max_participants"],
       })
     }
@@ -39,17 +40,28 @@ const CategorySchema = z
 
 type CreateAndPublishTournamentRpcArgs = Omit<
   Database["public"]["Functions"]["create_and_publish_tournament"]["Args"],
-  "p_description" | "p_prizes" | "p_rules" | "p_max_participants" | "p_categories"
+  | "p_description"
+  | "p_prizes"
+  | "p_rules"
+  | "p_max_participants"
+  | "p_categories"
+  | "p_participant_type"
 > & {
   p_description: string | null
   p_prizes: string | null
   p_rules: string | null
   p_max_participants: number | null
+  p_participant_type: "individual" | "team" | null
   p_categories: z.infer<typeof CategorySchema>[]
 }
 
 function parseBoolean(value: FormDataEntryValue | null) {
   return value === "true"
+}
+
+function parseParticipantType(value: FormDataEntryValue | null) {
+  if (value === "individual" || value === "team") return value
+  return null
 }
 
 function parseNullableInteger(value: FormDataEntryValue | null): number | null {
@@ -107,6 +119,7 @@ export async function createTournament(
     (formData.get("registration_deadline") as string | null)?.trim() ?? ""
   const isPublic = parseBoolean(formData.get("is_public"))
   const hasCategories = parseBoolean(formData.get("has_categories"))
+  const participantType = parseParticipantType(formData.get("participant_type"))
   const minParticipants = parseNullableInteger(formData.get("min_participants"))
   const maxParticipants = parseNullableInteger(formData.get("max_participants"))
   const paymentMethod =
@@ -152,7 +165,7 @@ export async function createTournament(
     !Number.isInteger(minParticipants) ||
     minParticipants <= 0
   ) {
-    return { error: "El mínimo de participantes del torneo no es válido." }
+    return { error: "El mínimo de inscripciones del torneo no es válido." }
   }
 
   const validatedMinParticipants: number = minParticipants
@@ -162,7 +175,7 @@ export async function createTournament(
     (!Number.isInteger(maxParticipants) ||
       maxParticipants < validatedMinParticipants)
   ) {
-    return { error: "El máximo de participantes del torneo no es válido." }
+    return { error: "El máximo de inscripciones del torneo no es válido." }
   }
 
   let entryPrice = Number(entryPriceRaw || "0")
@@ -201,6 +214,13 @@ export async function createTournament(
       }
     }
   } else {
+    if (!participantType) {
+      return {
+        error:
+          "Debes indicar si el torneo se inscribe de forma individual o por equipos.",
+      }
+    }
+
     if (!Number.isFinite(entryPrice) || entryPrice < 0) {
       return { error: "El precio del torneo no es válido." }
     }
@@ -246,6 +266,7 @@ export async function createTournament(
     p_registration_deadline: registrationDeadline,
     p_is_public: isPublic,
     p_has_categories: hasCategories,
+    p_participant_type: hasCategories ? null : participantType,
     p_min_participants: validatedMinParticipants,
     p_max_participants: maxParticipants,
     p_payment_method: paymentMethod,
