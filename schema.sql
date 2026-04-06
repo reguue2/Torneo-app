@@ -985,9 +985,9 @@ begin
   end if;
 
   v_phone_raw := trim(coalesce(p_contact_phone, ''));
-  v_phone_normalized := public.normalize_phone(v_phone_raw);
+  v_phone_normalized := public.normalize_spanish_phone(v_phone_raw);
   if v_phone_normalized is null then
-    raise exception 'Contact phone is required';
+    raise exception 'Contact phone is invalid';
   end if;
 
   v_email_raw := trim(coalesce(p_contact_email, ''));
@@ -1102,7 +1102,9 @@ begin
     payment_method,
     verification_code_hash,
     verification_token_hash,
-    expires_at
+    expires_at,
+    resend_count,
+    last_email_sent_at
   )
   values (
     p_tournament_id,
@@ -1117,7 +1119,9 @@ begin
     p_payment_method,
     extensions.crypt(v_verification_code, extensions.gen_salt('bf')),
     public.sha256_hex(v_verification_token),
-    v_expires_at
+    v_expires_at,
+    0,
+    now()
   )
   returning id into v_request_id;
 
@@ -1324,6 +1328,36 @@ $$;
 
 
 ALTER FUNCTION "public"."normalize_phone"("p_phone" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."normalize_spanish_phone"("p_phone" "text") RETURNS "text"
+    LANGUAGE "plpgsql" IMMUTABLE
+    AS $_$
+declare
+  v_digits text;
+begin
+  v_digits := regexp_replace(trim(coalesce(p_phone, '')), '\D', '', 'g');
+
+  if v_digits = '' then
+    return null;
+  end if;
+
+  if v_digits like '0034%' then
+    v_digits := substring(v_digits from 5);
+  elsif length(v_digits) = 11 and v_digits like '34%' then
+    v_digits := substring(v_digits from 3);
+  end if;
+
+  if v_digits ~ '^[6789][0-9]{8}$' then
+    return v_digits;
+  end if;
+
+  return null;
+end;
+$_$;
+
+
+ALTER FUNCTION "public"."normalize_spanish_phone"("p_phone" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."prevent_category_registration_config_change"() RETURNS "trigger"
@@ -1582,6 +1616,158 @@ $$;
 
 
 ALTER FUNCTION "public"."publish_tournament"("p_tournament_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."resend_public_registration_request"("p_request_id" "uuid") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_request public.registration_requests%rowtype;
+  v_tournament public.tournaments%rowtype;
+  v_category public.categories%rowtype;
+  v_amount numeric := 0;
+  v_verification_code text;
+  v_verification_token text;
+  v_expires_at timestamptz := now() + interval '30 minutes';
+  v_new_request_id uuid;
+  v_seconds_remaining integer;
+begin
+  select *
+  into v_request
+  from public.registration_requests
+  where id = p_request_id;
+
+  if not found then
+    raise exception 'Verification request not found';
+  end if;
+
+  if v_request.registration_id is not null or v_request.consumed_at is not null then
+    raise exception 'Verification request already consumed';
+  end if;
+
+  v_seconds_remaining := greatest(0, 60 - floor(extract(epoch from (now() - v_request.last_email_sent_at)))::integer);
+
+  if v_seconds_remaining > 0 then
+    raise exception 'Resend cooldown active: % seconds remaining', v_seconds_remaining;
+  end if;
+
+  if v_request.resend_count >= 3 then
+    raise exception 'Resend limit reached';
+  end if;
+
+  select *
+  into v_tournament
+  from public.tournaments
+  where id = v_request.tournament_id;
+
+  if not found then
+    raise exception 'Tournament not found';
+  end if;
+
+  if v_tournament.status <> 'published' then
+    raise exception 'Tournament is not open for registration';
+  end if;
+
+  if v_tournament.registration_deadline is not null and now() > v_tournament.registration_deadline then
+    raise exception 'Registration deadline passed';
+  end if;
+
+  if v_request.category_id is not null then
+    select *
+    into v_category
+    from public.categories
+    where id = v_request.category_id
+      and tournament_id = v_request.tournament_id;
+
+    if not found then
+      raise exception 'Category not linked to tournament';
+    end if;
+
+    if v_category.participant_type is distinct from v_request.participant_type then
+      raise exception 'Category participant type changed after request creation';
+    end if;
+
+    v_amount := coalesce(v_category.price, 0);
+  else
+    if v_tournament.participant_type is distinct from v_request.participant_type then
+      raise exception 'Tournament participant type changed after request creation';
+    end if;
+
+    v_amount := coalesce(v_tournament.entry_price, 0);
+  end if;
+
+  if exists (
+    select 1
+    from public.registrations r
+    where r.tournament_id = v_request.tournament_id
+      and r.category_id is not distinct from v_request.category_id
+      and r.status not in ('cancelled', 'expired')
+      and (
+        r.contact_email_normalized = v_request.contact_email_normalized
+        or r.contact_phone_normalized = v_request.contact_phone_normalized
+      )
+  ) then
+    raise exception 'A registration already exists with this email or phone';
+  end if;
+
+  update public.registration_requests
+  set expires_at = now() - interval '1 second'
+  where id = v_request.id;
+
+  v_verification_code := lpad(((random() * 999999)::int)::text, 6, '0');
+  v_verification_token := encode(extensions.gen_random_bytes(24), 'hex');
+
+  insert into public.registration_requests (
+    tournament_id,
+    category_id,
+    participant_type,
+    display_name,
+    contact_phone,
+    contact_phone_normalized,
+    contact_email,
+    contact_email_normalized,
+    players,
+    payment_method,
+    verification_code_hash,
+    verification_token_hash,
+    expires_at,
+    resend_count,
+    last_email_sent_at
+  )
+  values (
+    v_request.tournament_id,
+    v_request.category_id,
+    v_request.participant_type,
+    v_request.display_name,
+    v_request.contact_phone,
+    v_request.contact_phone_normalized,
+    v_request.contact_email,
+    v_request.contact_email_normalized,
+    null,
+    v_request.payment_method,
+    extensions.crypt(v_verification_code, extensions.gen_salt('bf')),
+    public.sha256_hex(v_verification_token),
+    v_expires_at,
+    v_request.resend_count + 1,
+    now()
+  )
+  returning id into v_new_request_id;
+
+  return jsonb_build_object(
+    'request_id', v_new_request_id,
+    'verification_code', v_verification_code,
+    'verification_token', v_verification_token,
+    'expires_at', v_expires_at,
+    'amount', coalesce(v_amount, 0),
+    'payment_method', v_request.payment_method,
+    'contact_email', v_request.contact_email
+  );
+end;
+$$;
+
+
+ALTER FUNCTION "public"."resend_public_registration_request"("p_request_id" "uuid") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."run_tournament_automation_job"() RETURNS "jsonb"
@@ -2127,6 +2313,8 @@ CREATE TABLE IF NOT EXISTS "public"."registration_requests" (
     "consumed_at" timestamp with time zone,
     "registration_id" "uuid",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "resend_count" integer DEFAULT 0 NOT NULL,
+    "last_email_sent_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     CONSTRAINT "registration_requests_display_name_check" CHECK ((TRIM(BOTH FROM "display_name") <> ''::"text"))
 );
 
@@ -2529,6 +2717,12 @@ GRANT ALL ON FUNCTION "public"."normalize_phone"("p_phone" "text") TO "service_r
 
 
 
+GRANT ALL ON FUNCTION "public"."normalize_spanish_phone"("p_phone" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."normalize_spanish_phone"("p_phone" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."normalize_spanish_phone"("p_phone" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."prevent_category_registration_config_change"() TO "anon";
 GRANT ALL ON FUNCTION "public"."prevent_category_registration_config_change"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."prevent_category_registration_config_change"() TO "service_role";
@@ -2556,6 +2750,12 @@ GRANT ALL ON FUNCTION "public"."prevent_tournament_registration_config_change"()
 GRANT ALL ON FUNCTION "public"."publish_tournament"("p_tournament_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."publish_tournament"("p_tournament_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."publish_tournament"("p_tournament_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."resend_public_registration_request"("p_request_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."resend_public_registration_request"("p_request_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."resend_public_registration_request"("p_request_id" "uuid") TO "service_role";
 
 
 

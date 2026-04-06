@@ -78,7 +78,6 @@ function formatMoney(value: number | null | undefined) {
   return `${text}€`
 }
 
-
 function getRegistrationAmount(
   registration: RegistrationRow,
   tournament: TournamentRow,

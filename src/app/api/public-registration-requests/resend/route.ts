@@ -2,25 +2,20 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { dispatchRegistrationVerificationEmail } from "@/lib/registrations/email"
-import { normalizeSpanishPhone } from "@/lib/registrations/phone"
 import type { Json } from "@/types/database"
 
-const CreatePublicRegistrationRequestSchema = z.object({
-  tournamentId: z.string().uuid(),
-  categoryId: z.string().uuid().nullable(),
-  displayName: z.string().trim().min(1),
-  contactPhone: z.string().trim().min(1),
-  contactEmail: z.string().trim().email(),
-  paymentMethod: z.enum(["cash", "online"]),
+const ResendSchema = z.object({
+  requestId: z.string().uuid(),
 })
 
-type PublicRegistrationRequestRpcResult = {
+type ResendRequestRpcResult = {
   request_id: string
   verification_code: string
   verification_token: string
   expires_at: string
   amount: number
   payment_method: "cash" | "online"
+  contact_email: string
 }
 
 function resolveOrigin(request: Request) {
@@ -46,7 +41,7 @@ function isObject(value: Json | null): value is Record<string, Json | undefined>
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function parseRpcResult(value: Json | null): PublicRegistrationRequestRpcResult | null {
+function parseRpcResult(value: Json | null): ResendRequestRpcResult | null {
   if (!isObject(value)) return null
 
   const requestId = value.request_id
@@ -55,6 +50,7 @@ function parseRpcResult(value: Json | null): PublicRegistrationRequestRpcResult 
   const expiresAt = value.expires_at
   const amount = value.amount
   const paymentMethod = value.payment_method
+  const contactEmail = value.contact_email
 
   if (
     typeof requestId !== "string" ||
@@ -62,6 +58,7 @@ function parseRpcResult(value: Json | null): PublicRegistrationRequestRpcResult 
     typeof verificationToken !== "string" ||
     typeof expiresAt !== "string" ||
     typeof amount !== "number" ||
+    typeof contactEmail !== "string" ||
     (paymentMethod !== "cash" && paymentMethod !== "online")
   ) {
     return null
@@ -74,7 +71,16 @@ function parseRpcResult(value: Json | null): PublicRegistrationRequestRpcResult 
     expires_at: expiresAt,
     amount,
     payment_method: paymentMethod,
+    contact_email: contactEmail,
   }
+}
+
+function extractRetryAfterSeconds(message: string) {
+  const match = message.match(/(\d+)\s*seconds? remaining/i)
+  if (!match) return null
+
+  const value = Number(match[1])
+  return Number.isFinite(value) ? value : null
 }
 
 export async function POST(request: Request) {
@@ -89,83 +95,40 @@ export async function POST(request: Request) {
     )
   }
 
-  const parsed = CreatePublicRegistrationRequestSchema.safeParse(rawBody)
+  const parsed = ResendSchema.safeParse(rawBody)
 
   if (!parsed.success) {
     return NextResponse.json(
-      { error: "Los datos de la solicitud no son válidos." },
-      { status: 400 }
-    )
-  }
-
-  const normalizedPhone = normalizeSpanishPhone(parsed.data.contactPhone)
-  if (!normalizedPhone) {
-    return NextResponse.json(
-      { error: "Introduce un teléfono español válido." },
+      { error: "Los datos del reenvío no son válidos." },
       { status: 400 }
     )
   }
 
   try {
     const supabase = createAdminClient()
+    const callRpc = supabase.rpc as unknown as (
+      fn: string,
+      args?: Record<string, unknown>
+    ) => Promise<{ data: Json | null; error: { message: string } | null }>
 
-    const { data, error } = await supabase.rpc("create_public_registration_request", {
-      p_tournament_id: parsed.data.tournamentId,
-      p_category_id: parsed.data.categoryId ?? undefined,
-      p_display_name: parsed.data.displayName,
-      p_contact_phone: parsed.data.contactPhone,
-      p_contact_email: parsed.data.contactEmail,
-      p_payment_method: parsed.data.paymentMethod,
+    const { data, error } = await callRpc("resend_public_registration_request", {
+      p_request_id: parsed.data.requestId,
     })
 
     if (error) {
-      if (error.message.includes("A verification request is already pending for this email or phone")) {
-        let query = supabase
-          .from("registration_requests")
-          .select("id, expires_at")
-          .eq("tournament_id", parsed.data.tournamentId)
-          .is("consumed_at", null)
-          .gt("expires_at", new Date().toISOString())
-          .eq("contact_email_normalized", parsed.data.contactEmail.trim().toLowerCase())
-          .limit(1)
+      const retryAfter = extractRetryAfterSeconds(error.message)
 
-        if (parsed.data.categoryId) {
-          query = query.eq("category_id", parsed.data.categoryId)
-        } else {
-          query = query.is("category_id", null)
-        }
-
-        const { data: pendingByEmail } = await query.maybeSingle()
-
-        let pendingRequest = pendingByEmail
-
-        if (!pendingRequest) {
-          let phoneQuery = supabase
-            .from("registration_requests")
-            .select("id, expires_at")
-            .eq("tournament_id", parsed.data.tournamentId)
-            .is("consumed_at", null)
-            .gt("expires_at", new Date().toISOString())
-            .eq("contact_phone_normalized", normalizedPhone)
-            .limit(1)
-
-          if (parsed.data.categoryId) {
-            phoneQuery = phoneQuery.eq("category_id", parsed.data.categoryId)
-          } else {
-            phoneQuery = phoneQuery.is("category_id", null)
-          }
-
-          const { data: pendingByPhone } = await phoneQuery.maybeSingle()
-          pendingRequest = pendingByPhone
-        }
-
+      if (retryAfter !== null) {
         return NextResponse.json(
-          {
-            error: error.message,
-            pending_request_id: pendingRequest?.id ?? null,
-            expires_at: pendingRequest?.expires_at ?? null,
-          },
-          { status: 409 }
+          { error: error.message, retry_after_seconds: retryAfter },
+          { status: 429 }
+        )
+      }
+
+      if (error.message.includes("Resend limit reached")) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 429 }
         )
       }
 
@@ -187,7 +150,7 @@ export async function POST(request: Request) {
 
     const delivery = await dispatchRegistrationVerificationEmail({
       requestId: result.request_id,
-      recipientEmail: parsed.data.contactEmail,
+      recipientEmail: result.contact_email,
       verificationCode: result.verification_code,
       verificationToken: result.verification_token,
       expiresAt: result.expires_at,
@@ -203,10 +166,10 @@ export async function POST(request: Request) {
       email_delivery_message: delivery.message,
     })
   } catch (error) {
-    console.error("public registration request route failed:", error)
+    console.error("resend public registration request route failed:", error)
 
     return NextResponse.json(
-      { error: "No se pudo crear la solicitud de inscripción." },
+      { error: "No se pudo reenviar la verificación." },
       { status: 500 }
     )
   }

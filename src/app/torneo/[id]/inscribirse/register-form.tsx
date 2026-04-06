@@ -3,9 +3,11 @@
 import Link from "next/link"
 import { useMemo, useState } from "react"
 import { formatMoney } from "@/lib/tournaments/domain"
+import { getSpanishPhoneValidationMessage, normalizeSpanishPhone } from "@/lib/registrations/phone"
 
 type ParticipantType = "individual" | "team"
 type RegistrationPaymentMethod = "cash" | "online"
+type EmailDeliveryStatus = "sent" | "provider_not_configured" | "provider_error"
 
 type Category = {
   id: string
@@ -23,8 +25,15 @@ type RegistrationRequestResult = {
   expires_at: string
   amount: number
   payment_method: RegistrationPaymentMethod
-  email_delivery_status: "pending_provider_configuration"
+  email_delivery_status: EmailDeliveryStatus
   email_delivery_message: string
+}
+
+type ErrorPayload = {
+  error?: string
+  pending_request_id?: string | null
+  expires_at?: string | null
+  retry_after_seconds?: number | null
 }
 
 function isValidEmail(value: string) {
@@ -39,6 +48,19 @@ function getParticipantTypeLabel(value: ParticipantType | null) {
   if (value === "team") return "Equipos"
   if (value === "individual") return "Individual"
   return "Por definir"
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "—"
+
+  return date.toLocaleString("es-ES", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
 function mapErrorMessage(message: string) {
@@ -87,21 +109,29 @@ function mapErrorMessage(message: string) {
   if (message.includes("A verification request is already pending for this email or phone")) {
     return "Ya existe una solicitud pendiente de validar con ese email o teléfono."
   }
+  if (message.includes("Resend cooldown active")) {
+    return "Todavía no puedes reenviar el correo. Espera un poco e inténtalo otra vez."
+  }
+  if (message.includes("Resend limit reached")) {
+    return "Has alcanzado el límite de reenvíos para esta solicitud. Crea una nueva desde la página del torneo."
+  }
+  if (message.includes("Verification request expired")) {
+    return "La solicitud de verificación ha caducado. Crea una nueva desde la página del torneo."
+  }
 
   return message
 }
 
-function formatDateTime(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "—"
+function getDeliveryTone(status: EmailDeliveryStatus) {
+  if (status === "sent") {
+    return "border-green-200 bg-green-50 text-green-800"
+  }
 
-  return date.toLocaleString("es-ES", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+  if (status === "provider_not_configured") {
+    return "border-amber-200 bg-amber-50 text-amber-900"
+  }
+
+  return "border-red-200 bg-red-50 text-red-800"
 }
 
 export default function RegisterForm({
@@ -131,8 +161,12 @@ export default function RegisterForm({
   const [contactPhone, setContactPhone] = useState("")
   const [contactEmail, setContactEmail] = useState("")
   const [submitting, setSubmitting] = useState(false)
+  const [resending, setResending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [requestResult, setRequestResult] = useState<RegistrationRequestResult | null>(null)
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null)
+  const [pendingRequestExpiresAt, setPendingRequestExpiresAt] = useState<string | null>(null)
+  const [resendFeedback, setResendFeedback] = useState<string | null>(null)
 
   const selectedCategory = useMemo(() => {
     if (!hasCategories) return null
@@ -171,8 +205,9 @@ export default function RegisterForm({
         : "El nombre del participante es obligatorio."
     }
 
-    if (!contactPhone.trim()) {
-      return "El teléfono de contacto es obligatorio."
+    const phoneError = getSpanishPhoneValidationMessage(contactPhone)
+    if (phoneError) {
+      return phoneError
     }
 
     if (!contactEmail.trim()) {
@@ -186,18 +221,79 @@ export default function RegisterForm({
     return null
   }
 
+  const resetState = () => {
+    setError(null)
+    setPendingRequestId(null)
+    setPendingRequestExpiresAt(null)
+    setResendFeedback(null)
+  }
+
   const resetForm = () => {
     setRequestResult(null)
     setDisplayName("")
     setContactPhone("")
     setContactEmail("")
-    setError(null)
     setSelectedPaymentMethod(getInitialPaymentMethod(paymentMethod))
+    resetState()
+  }
+
+  const handleResend = async (requestId = pendingRequestId ?? requestResult?.request_id ?? null) => {
+    if (!requestId) return
+
+    setResending(true)
+    setError(null)
+    setResendFeedback(null)
+
+    try {
+      const response = await fetch("/api/public-registration-requests/resend", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ requestId }),
+      })
+
+      const payload = (await response.json()) as RegistrationRequestResult | ErrorPayload
+
+      if (!response.ok) {
+        const errorPayload = payload as ErrorPayload
+
+        const retryAfter =
+          typeof errorPayload.retry_after_seconds === "number"
+            ? errorPayload.retry_after_seconds
+            : null
+
+        const mapped = mapErrorMessage(
+          errorPayload.error ?? "No se pudo reenviar la verificación."
+        )
+
+        setError(
+          retryAfter !== null
+            ? `${mapped} Vuelve a intentarlo en ${retryAfter} segundos.`
+            : mapped
+        )
+        return
+      }
+
+      const result = payload as RegistrationRequestResult
+      setRequestResult(result)
+      setPendingRequestId(result.request_id)
+      setPendingRequestExpiresAt(result.expires_at)
+      setResendFeedback(
+        result.email_delivery_status === "sent"
+          ? "Te hemos reenviado el correo de verificación."
+          : result.email_delivery_message
+      )
+    } catch {
+      setError("No se pudo reenviar la verificación.")
+    } finally {
+      setResending(false)
+    }
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    setError(null)
+    resetState()
 
     const validationError = validate()
     if (validationError) {
@@ -223,21 +319,31 @@ export default function RegisterForm({
         }),
       })
 
-      const payload: RegistrationRequestResult | { error?: string } = await response.json()
+      const payload = (await response.json()) as RegistrationRequestResult | ErrorPayload
 
       if (!response.ok) {
-        const message = "error" in payload ? payload.error : undefined
-        setError(mapErrorMessage(message ?? "No se pudo crear la solicitud."))
+        const errorPayload = payload as ErrorPayload
+
+        setError(
+          mapErrorMessage(errorPayload.error ?? "No se pudo crear la solicitud.")
+        )
+        setPendingRequestId(errorPayload.pending_request_id ?? null)
+        setPendingRequestExpiresAt(errorPayload.expires_at ?? null)
         return
       }
 
-      setRequestResult(payload as RegistrationRequestResult)
+      const result = payload as RegistrationRequestResult
+      setRequestResult(result)
+      setPendingRequestId(result.request_id)
+      setPendingRequestExpiresAt(result.expires_at)
     } catch {
       setError("No se pudo crear la solicitud de inscripción.")
     } finally {
       setSubmitting(false)
     }
   }
+
+  const canOfferResend = Boolean(pendingRequestId)
 
   if (requestResult) {
     const isFree = Number(amount ?? 0) <= 0
@@ -275,6 +381,10 @@ export default function RegisterForm({
             <span className="font-medium text-gray-900">Email:</span> {contactEmail}
           </p>
           <p className="mt-2">
+            <span className="font-medium text-gray-900">Teléfono:</span>{" "}
+            {normalizeSpanishPhone(contactPhone) ?? contactPhone}
+          </p>
+          <p className="mt-2">
             <span className="font-medium text-gray-900">Importe:</span>{" "}
             {amount === null ? "Selecciona categoría" : formatMoney(amount)}
           </p>
@@ -292,19 +402,32 @@ export default function RegisterForm({
           </p>
         </div>
 
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          <p className="font-semibold">Correo de verificación pendiente de integración</p>
-          <p className="mt-2">{requestResult.email_delivery_message}</p>
-          <p className="mt-2">
-            La parte sensible ya no sale al navegador. Hasta conectar el proveedor de correo,
-            este flujo no puede completarse desde el cliente final.
+        <div className={`rounded-2xl border p-5 text-sm ${getDeliveryTone(requestResult.email_delivery_status)}`}>
+          <p className="font-semibold">
+            {requestResult.email_delivery_status === "sent"
+              ? "Correo de verificación enviado"
+              : requestResult.email_delivery_status === "provider_not_configured"
+                ? "Proveedor de correo pendiente de terminar"
+                : "El correo no se pudo enviar"}
           </p>
-          {process.env.NODE_ENV !== "production" && (
-            <p className="mt-2">
-              En desarrollo puedes revisar el log del servidor para depurar el enlace y el
-              código de verificación sin exponerlos en la interfaz.
-            </p>
-          )}
+          <p className="mt-2">{requestResult.email_delivery_message}</p>
+          {resendFeedback && <p className="mt-2">{resendFeedback}</p>}
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <button
+              type="button"
+              onClick={() => void handleResend(requestResult.request_id)}
+              disabled={resending}
+              className="btn-secondary"
+            >
+              {resending ? "Reenviando..." : "Reenviar correo de verificación"}
+            </button>
+            <Link
+              href={`/inscripcion/verificar?request=${encodeURIComponent(requestResult.request_id)}`}
+              className="btn-secondary text-center"
+            >
+              Ir a validación manual
+            </Link>
+          </div>
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -324,6 +447,35 @@ export default function RegisterForm({
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error}
+          {pendingRequestExpiresAt && (
+            <p className="mt-2">La solicitud pendiente caduca el {formatDateTime(pendingRequestExpiresAt)}.</p>
+          )}
+        </div>
+      )}
+
+      {canOfferResend && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">Ya hay una solicitud pendiente</p>
+          <p className="mt-2">
+            No vamos a crear otra igual mientras siga activa. Puedes reenviar el correo de
+            verificación de esa solicitud.
+          </p>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <button
+              type="button"
+              onClick={() => void handleResend()}
+              disabled={resending}
+              className="btn-secondary"
+            >
+              {resending ? "Reenviando..." : "Reenviar correo"}
+            </button>
+            <Link
+              href={`/inscripcion/verificar?request=${encodeURIComponent(pendingRequestId ?? "")}`}
+              className="btn-secondary text-center"
+            >
+              Ir a validación manual
+            </Link>
+          </div>
         </div>
       )}
 
@@ -345,11 +497,10 @@ export default function RegisterForm({
             <button
               type="button"
               onClick={() => setSelectedPaymentMethod("cash")}
-              className={`rounded-2xl border p-4 text-left transition ${
-                selectedPaymentMethod === "cash"
-                  ? "border-indigo-600 bg-indigo-50"
-                  : "border-gray-200 bg-white hover:bg-gray-50"
-              }`}
+              className={`rounded-2xl border p-4 text-left transition ${selectedPaymentMethod === "cash"
+                ? "border-indigo-600 bg-indigo-50"
+                : "border-gray-200 bg-white hover:bg-gray-50"
+                }`}
             >
               <p className="font-medium text-gray-900">Efectivo</p>
               <p className="mt-1 text-sm text-gray-500">
@@ -360,11 +511,10 @@ export default function RegisterForm({
             <button
               type="button"
               onClick={() => setSelectedPaymentMethod("online")}
-              className={`rounded-2xl border p-4 text-left transition ${
-                selectedPaymentMethod === "online"
-                  ? "border-indigo-600 bg-indigo-50"
-                  : "border-gray-200 bg-white hover:bg-gray-50"
-              }`}
+              className={`rounded-2xl border p-4 text-left transition ${selectedPaymentMethod === "online"
+                ? "border-indigo-600 bg-indigo-50"
+                : "border-gray-200 bg-white hover:bg-gray-50"
+                }`}
             >
               <p className="font-medium text-gray-900">Online</p>
               <p className="mt-1 text-sm text-gray-500">
@@ -442,8 +592,12 @@ export default function RegisterForm({
             className="input"
             value={contactPhone}
             onChange={(event) => setContactPhone(event.target.value)}
-            placeholder="Ej: 612345678"
+            placeholder="Ej: 612345678 o +34 612 345 678"
+            autoComplete="tel"
           />
+          <p className="mt-2 text-xs text-gray-500">
+            Solo aceptamos teléfonos españoles válidos.
+          </p>
         </div>
 
         <div>
@@ -457,9 +611,10 @@ export default function RegisterForm({
             placeholder={
               effectiveParticipantType === "team" ? "Ej: equipo@correo.com" : "Ej: jugador@correo.com"
             }
+            autoComplete="email"
           />
           <p className="mt-2 text-xs text-gray-500">
-            Lo usamos para validar la solicitud antes de crear la inscripción.
+            Lo usamos para validar la solicitud y enviarte después la referencia de la inscripción.
           </p>
         </div>
       </div>

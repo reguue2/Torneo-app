@@ -2,28 +2,26 @@
 
 import Link from "next/link"
 import { useMemo, useState } from "react"
-
-import { createClient } from "@/lib/supabase/client"
 import { formatMoney } from "@/lib/tournaments/domain"
-import type { Json } from "@/types/database"
+
+type SubmitMode = "token" | "code"
+type FlowStatus = "idle" | "submitting" | "success" | "error"
+type EmailDeliveryStatus = "sent" | "provider_not_configured" | "provider_error" | null
 
 type VerificationResult = {
   already_verified: boolean
   public_reference: string | null
-  registration_status:
-    | "pending"
-    | "paid"
-    | "cancelled"
-    | "pending_verification"
-    | "pending_cash_validation"
-    | "pending_online_payment"
-    | "confirmed"
-    | "expired"
-    | null
+  registration_status: string | null
   payment_method: "cash" | "online" | null
   amount: number | null
   cancel_code: string | null
   cancel_token: string | null
+  email_delivery_status: EmailDeliveryStatus
+  email_delivery_message: string | null
+}
+
+type ErrorPayload = {
+  error?: string
 }
 
 type Props = {
@@ -32,64 +30,13 @@ type Props = {
   initialCode: string
 }
 
-type SubmitMode = "token" | "code"
-type FlowStatus = "idle" | "submitting" | "success" | "error"
-
-function isObject(value: Json | null): value is Record<string, Json | undefined> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function parseVerificationResult(value: Json | null): VerificationResult | null {
-  if (!isObject(value)) return null
-
-  const alreadyVerified = value.already_verified
-  const publicReference = value.public_reference
-  const registrationStatus = value.registration_status
-  const paymentMethod = value.payment_method
-  const amount = value.amount
-  const cancelCode = value.cancel_code
-  const cancelToken = value.cancel_token
-
-  if (typeof alreadyVerified !== "boolean") return null
-  if (publicReference !== null && typeof publicReference !== "string") return null
-  if (
-    registrationStatus !== null &&
-    registrationStatus !== "pending" &&
-    registrationStatus !== "paid" &&
-    registrationStatus !== "cancelled" &&
-    registrationStatus !== "pending_verification" &&
-    registrationStatus !== "pending_cash_validation" &&
-    registrationStatus !== "pending_online_payment" &&
-    registrationStatus !== "confirmed" &&
-    registrationStatus !== "expired"
-  ) {
-    return null
-  }
-  if (paymentMethod !== null && paymentMethod !== "cash" && paymentMethod !== "online") {
-    return null
-  }
-  if (amount !== null && typeof amount !== "number") return null
-  if (cancelCode !== null && typeof cancelCode !== "string") return null
-  if (cancelToken !== null && typeof cancelToken !== "string") return null
-
-  return {
-    already_verified: alreadyVerified,
-    public_reference: publicReference,
-    registration_status: registrationStatus,
-    payment_method: paymentMethod,
-    amount,
-    cancel_code: cancelCode,
-    cancel_token: cancelToken,
-  }
-}
-
 function mapErrorMessage(message: string) {
   if (message.includes("Verification request not found")) {
     return "No hemos encontrado la solicitud de verificación."
   }
 
   if (message.includes("Verification request expired")) {
-    return "La solicitud de verificación ha caducado. Tendrás que crear una nueva."
+    return "La solicitud de verificación ha caducado. Tendrás que crear una nueva desde la página del torneo."
   }
 
   if (
@@ -140,13 +87,27 @@ function getNextStepMessage(result: VerificationResult) {
   return "La solicitud ya está validada y la inscripción real se ha creado correctamente."
 }
 
+function getDeliveryTone(status: EmailDeliveryStatus) {
+  if (status === "sent") {
+    return "border-green-200 bg-green-50 text-green-800"
+  }
+
+  if (status === "provider_not_configured") {
+    return "border-amber-200 bg-amber-50 text-amber-900"
+  }
+
+  if (status === "provider_error") {
+    return "border-red-200 bg-red-50 text-red-800"
+  }
+
+  return "border-gray-200 bg-gray-50 text-gray-700"
+}
+
 export default function VerifyFlow({
   initialRequestId,
   initialToken,
   initialCode,
 }: Props) {
-  const supabase = createClient()
-
   const [requestId, setRequestId] = useState(initialRequestId)
   const token = initialToken
   const [code, setCode] = useState(initialCode)
@@ -175,31 +136,37 @@ export default function VerifyFlow({
     setFlowStatus("submitting")
     setError(null)
 
-    const { data, error: rpcError } = await supabase.rpc(
-      "verify_public_registration_request",
-      {
-        p_request_id: requestId.trim(),
-        p_verification_token: mode === "token" ? token : undefined,
-        p_verification_code: mode === "code" ? code.trim() : undefined,
+    try {
+      const response = await fetch("/api/public-registration-verifications", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requestId: requestId.trim(),
+          verificationToken: mode === "token" ? token : undefined,
+          verificationCode: mode === "code" ? code.trim() : undefined,
+        }),
+      })
+
+      const payload = (await response.json()) as VerificationResult | ErrorPayload
+
+      if (!response.ok) {
+        const errorPayload = payload as ErrorPayload
+
+        setFlowStatus("error")
+        setError(
+          mapErrorMessage(errorPayload.error ?? "No se pudo validar la solicitud.")
+        )
+        return
       }
-    )
 
-    if (rpcError) {
+      setResult(payload as VerificationResult)
+      setFlowStatus("success")
+    } catch {
       setFlowStatus("error")
-      setError(mapErrorMessage(rpcError.message))
-      return
+      setError("No se pudo validar la solicitud.")
     }
-
-    const parsedResult = parseVerificationResult(data)
-
-    if (!parsedResult) {
-      setFlowStatus("error")
-      setError("La respuesta del servidor no tiene el formato esperado.")
-      return
-    }
-
-    setResult(parsedResult)
-    setFlowStatus("success")
   }
 
   if (flowStatus === "success" && result) {
@@ -258,6 +225,21 @@ export default function VerifyFlow({
             </p>
           )}
         </div>
+
+        {!result.already_verified && result.email_delivery_message && (
+          <div className={`rounded-2xl border p-5 text-sm ${getDeliveryTone(result.email_delivery_status)}`}>
+            <p className="font-semibold">
+              {result.email_delivery_status === "sent"
+                ? "Correo de confirmación enviado"
+                : result.email_delivery_status === "provider_not_configured"
+                  ? "Inscripción creada, pero falta terminar el proveedor de correo"
+                  : result.email_delivery_status === "provider_error"
+                    ? "La inscripción se ha creado, pero el correo de confirmación ha fallado"
+                    : "Estado del correo"}
+            </p>
+            <p className="mt-2">{result.email_delivery_message}</p>
+          </div>
+        )}
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <Link href="/explorar" className="btn-secondary text-center">
