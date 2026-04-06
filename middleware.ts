@@ -13,6 +13,15 @@ function isPublicTournamentRegistrationPath(pathname: string) {
   )
 }
 
+function buildLoginRedirect(req: NextRequest) {
+  const loginUrl = new URL("/login", req.url)
+  const nextPath = `${req.nextUrl.pathname}${req.nextUrl.search}`
+
+  loginUrl.searchParams.set("next", nextPath)
+
+  return NextResponse.redirect(loginUrl)
+}
+
 export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname
 
@@ -46,7 +55,7 @@ export async function middleware(req: NextRequest) {
   const isProtected = protectedRoutes.some((route) => pathname.startsWith(route))
 
   if (!user && isProtected) {
-    return NextResponse.redirect(new URL("/login", req.url))
+    return buildLoginRedirect(req)
   }
 
   return res

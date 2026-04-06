@@ -1,4 +1,10 @@
+"use client"
+
 import Link from "next/link"
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import type { User } from "@supabase/supabase-js"
+import { createClient } from "@/lib/supabase/client"
 
 const featureCards = [
   {
@@ -52,6 +58,36 @@ const steps = [
 ] as const
 
 export default function HomePage() {
+  const router = useRouter()
+  const supabase = createClient()
+
+  const [user, setUser] = useState<User | null>(null)
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null)
+    })
+
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user)
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [supabase.auth])
+
+  const handleCreateTournament = () => {
+    if (!user) {
+      router.push("/login?next=%2Fcrear-torneo")
+      return
+    }
+
+    router.push("/crear-torneo")
+  }
+
   return (
     <>
       <section className="section-spacing">
@@ -69,9 +105,10 @@ export default function HomePage() {
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link href="/crear-torneo" className="btn-primary text-center">
+              <button onClick={handleCreateTournament} className="btn-primary text-center">
                 Crear torneo
-              </Link>
+              </button>
+
               <Link href="/explorar" className="btn-secondary text-center">
                 Explorar torneos
               </Link>

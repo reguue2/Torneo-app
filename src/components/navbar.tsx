@@ -49,10 +49,11 @@ export default function Navbar() {
 
   const handleProtectedRoute = (path: string) => {
     if (!user) {
-      router.push("/login")
-    } else {
-      router.push(path)
+      router.push(`/login?next=${encodeURIComponent(path)}`)
+      return
     }
+
+    router.push(path)
   }
 
   const handleLogout = async () => {

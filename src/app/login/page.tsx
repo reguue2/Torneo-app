@@ -16,6 +16,8 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const nextPath = searchParams.get("next") || "/"
+
   useEffect(() => {
     const authError = searchParams.get("authError")
     if (!authError) return
@@ -44,7 +46,7 @@ export default function LoginPage() {
         if (authError) throw authError
       }
 
-      router.push("/")
+      router.push(nextPath)
       router.refresh()
     } catch (err: unknown) {
       setError(
@@ -58,10 +60,13 @@ export default function LoginPage() {
   const handleGoogle = async () => {
     setError(null)
 
+    const redirectUrl = new URL(`${window.location.origin}/auth/callback`)
+    redirectUrl.searchParams.set("next", nextPath)
+
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: redirectUrl.toString(),
       },
     })
   }

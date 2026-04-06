@@ -12,24 +12,36 @@ type SupabaseCookieOptions = {
   sameSite?: "lax" | "strict" | "none" | boolean
 }
 
-function buildErrorRedirect(origin: string, message: string) {
+function buildErrorRedirect(origin: string, message: string, next?: string | null) {
   const url = new URL("/login", origin)
   url.searchParams.set("authError", message)
+
+  if (next) {
+    url.searchParams.set("next", next)
+  }
+
   return NextResponse.redirect(url)
 }
 
 export async function GET(request: Request) {
-  const searchParams = new URL(request.url).searchParams
-  const origin = new URL(request.url).origin
+  const url = new URL(request.url)
+  const searchParams = url.searchParams
+  const origin = url.origin
   const code = searchParams.get("code")
-  const authError = searchParams.get("error_description") ?? searchParams.get("error")
+  const nextPath = searchParams.get("next")
+  const authError =
+    searchParams.get("error_description") ?? searchParams.get("error")
 
   if (authError) {
-    return buildErrorRedirect(origin, authError)
+    return buildErrorRedirect(origin, authError, nextPath)
   }
 
   if (!code) {
-    return buildErrorRedirect(origin, "No se recibió el código de autenticación.")
+    return buildErrorRedirect(
+      origin,
+      "No se recibió el código de autenticación.",
+      nextPath
+    )
   }
 
   const cookieStore = await cookies()
@@ -55,8 +67,8 @@ export async function GET(request: Request) {
   const { error } = await supabase.auth.exchangeCodeForSession(code)
 
   if (error) {
-    return buildErrorRedirect(origin, error.message)
+    return buildErrorRedirect(origin, error.message, nextPath)
   }
 
-  return NextResponse.redirect(`${origin}/`)
+  return NextResponse.redirect(new URL(nextPath || "/", origin))
 }

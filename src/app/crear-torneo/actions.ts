@@ -37,10 +37,6 @@ const CategorySchema = z
     }
   })
 
-const INITIAL_STATE: CreateTournamentActionState = {
-  error: null,
-}
-
 type CreateAndPublishTournamentRpcArgs = Omit<
   Database["public"]["Functions"]["create_and_publish_tournament"]["Args"],
   "p_description" | "p_prizes" | "p_rules" | "p_max_participants" | "p_categories"
@@ -279,5 +275,3 @@ export async function createTournament(
 
   redirect(`/torneos/${tournamentId}`)
 }
-
-export const initialCreateTournamentState = INITIAL_STATE

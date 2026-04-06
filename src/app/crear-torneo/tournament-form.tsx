@@ -1,11 +1,9 @@
 "use client"
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react"
-import {
-  createTournament,
-  initialCreateTournamentState,
-} from "./actions"
+import { createTournament } from "./actions"
 import { SPAIN_COMMUNITIES } from "@/lib/spain"
+import { createClient } from "@/lib/supabase/client"
 
 type StepId = "basic" | "structure" | "pricing" | "details" | "review"
 type PrizeMode = "none" | "global" | "per_category"
@@ -45,7 +43,11 @@ type DraftState = {
 
 type StepErrors = Record<string, string>
 
-const STORAGE_KEY = "create-tournament-draftless-wizard-v1"
+const initialCreateTournamentState = {
+  error: null as string | null,
+}
+
+const STORAGE_KEY_PREFIX = "create-tournament-draftless-wizard-v1"
 
 const EMPTY_CATEGORY: CategoryDraft = {
   id: "",
@@ -122,10 +124,10 @@ function parseStoredDraft(raw: string | null): DraftState | null {
       ...parsed,
       categories: Array.isArray(parsed.categories)
         ? parsed.categories.map((category: CategoryDraft) => ({
-          ...EMPTY_CATEGORY,
-          ...category,
-          id: category.id || createCategoryId(),
-        }))
+            ...EMPTY_CATEGORY,
+            ...category,
+            id: category.id || createCategoryId(),
+          }))
         : [],
     }
   } catch {
@@ -141,12 +143,13 @@ function mapStepTitle(step: StepId) {
   return "Revisión final"
 }
 
-function getVisibleSteps(hasCategories: boolean): StepId[] {
-  return ["basic", "structure", "pricing", "details", "review"].filter(Boolean) as StepId[]
+function getVisibleSteps(_hasCategories: boolean): StepId[] {
+  return ["basic", "structure", "pricing", "details", "review"]
 }
 
 export default function CreateTournamentForm() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const supabase = useMemo(() => createClient(), [])
 
   const [serverState, formAction, pending] = useActionState(
     createTournament,
@@ -164,30 +167,77 @@ export default function CreateTournamentForm() {
     id: createCategoryId(),
   })
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
+  const [storageKey, setStorageKey] = useState<string | null>(null)
 
   useEffect(() => {
-    let cancelled = false
+    let active = true
 
-    const hydrateFromSessionStorage = async () => {
-      const stored = parseStoredDraft(sessionStorage.getItem(STORAGE_KEY))
+    const loadStorageKey = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
 
-      if (cancelled) return
+      if (!active) return
 
-      if (stored) setDraft(stored)
-      setHydrated(true)
+      setStorageKey(
+        user
+          ? `${STORAGE_KEY_PREFIX}:${user.id}`
+          : `${STORAGE_KEY_PREFIX}:anonymous`
+      )
     }
 
-    void hydrateFromSessionStorage()
+    void loadStorageKey()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setStorageKey(
+        session?.user
+          ? `${STORAGE_KEY_PREFIX}:${session.user.id}`
+          : `${STORAGE_KEY_PREFIX}:anonymous`
+      )
+    })
 
     return () => {
-      cancelled = true
+      active = false
+      subscription.unsubscribe()
     }
-  }, [])
+  }, [supabase])
 
   useEffect(() => {
-    if (!hydrated) return
-    sessionStorage.setItem(STORAGE_KEY, buildSerializableDraft(draft))
-  }, [draft, hydrated])
+    if (!storageKey) return
+
+    setHydrated(false)
+
+    const stored = parseStoredDraft(sessionStorage.getItem(storageKey))
+
+    setDraft(stored ?? INITIAL_DRAFT)
+    setStep("basic")
+    setErrors({})
+    setEditingCategoryId(null)
+    setCategoryDraft({
+      ...EMPTY_CATEGORY,
+      id: createCategoryId(),
+    })
+
+    if (posterPreview) {
+      URL.revokeObjectURL(posterPreview)
+    }
+
+    setPosterPreview(null)
+    setPosterName("")
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+
+    setHydrated(true)
+  }, [storageKey])
+
+  useEffect(() => {
+    if (!hydrated || !storageKey) return
+    sessionStorage.setItem(storageKey, buildSerializableDraft(draft))
+  }, [draft, hydrated, storageKey])
 
   useEffect(() => {
     return () => {
@@ -252,15 +302,33 @@ export default function CreateTournamentForm() {
     clearFieldError(String(key))
   }
 
+  const clearPosterVisualState = () => {
+    if (posterPreview) URL.revokeObjectURL(posterPreview)
+    setPosterPreview(null)
+    setPosterName("")
+  }
+
   const onPosterChange = (file: File | null) => {
-    if (!file) return
+    if (!file) {
+      clearPosterVisualState()
+      clearFieldError("poster")
+      return
+    }
 
     if (!file.type.startsWith("image/")) {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
+      }
+      clearPosterVisualState()
       setErrors((prev) => ({ ...prev, poster: "El cartel debe ser una imagen válida." }))
       return
     }
 
     if (file.size > 5 * 1024 * 1024) {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
+      }
+      clearPosterVisualState()
       setErrors((prev) => ({ ...prev, poster: "El cartel no puede superar los 5MB." }))
       return
     }
@@ -399,7 +467,6 @@ export default function CreateTournamentForm() {
     setErrors(nextErrors)
 
     if (Object.keys(nextErrors).length > 0) return
-
     if (isLastStep) return
 
     setStep(steps[currentIndex + 1])
@@ -429,7 +496,7 @@ export default function CreateTournamentForm() {
       !categoryDraft.noMax &&
       (categoryDraft.max_participants.trim() === "" ||
         Number(categoryDraft.max_participants) <
-        Number(categoryDraft.min_participants || 0))
+          Number(categoryDraft.min_participants || 0))
     ) {
       next.category_max = "El máximo debe ser vacío o mayor/igual que el mínimo."
     }
@@ -497,18 +564,84 @@ export default function CreateTournamentForm() {
   }
 
   const resetLocalDraft = () => {
-    sessionStorage.removeItem(STORAGE_KEY)
+    if (storageKey) {
+      sessionStorage.removeItem(storageKey)
+    }
     setDraft(INITIAL_DRAFT)
-    setPosterPreview(null)
-    setPosterName("")
     setErrors({})
     setStep("basic")
     resetCategoryDraft()
+
+    if (posterPreview) {
+      URL.revokeObjectURL(posterPreview)
+    }
+
+    setPosterPreview(null)
+    setPosterName("")
 
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
   }
+
+  const posterPanel = (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h3 className="text-lg font-semibold text-gray-900">Cartel del torneo</h3>
+      <p className="mt-1 text-sm text-gray-500">
+        Obligatorio. JPG, PNG o similar. Máximo 5MB.
+      </p>
+
+      <div className="mt-4 space-y-4">
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded-xl bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100"
+          >
+            {posterName ? "Cambiar cartel" : "Seleccionar cartel"}
+          </button>
+
+          {posterName && (
+            <button
+              type="button"
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.value = ""
+                }
+                clearPosterVisualState()
+                setErrors((prev) => {
+                  const next = { ...prev }
+                  delete next.poster
+                  return next
+                })
+              }}
+              className="rounded-xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+            >
+              Quitar cartel
+            </button>
+          )}
+        </div>
+
+        {posterName ? (
+          <p className="text-sm text-gray-600">Archivo seleccionado: {posterName}</p>
+        ) : (
+          <p className="text-sm text-gray-500">Todavía no has seleccionado ningún cartel.</p>
+        )}
+
+        {posterPreview && (
+          <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+            <img
+              src={posterPreview}
+              alt="Vista previa del cartel"
+              className="h-64 w-full object-contain"
+            />
+          </div>
+        )}
+
+        {errors.poster && <p className="error-text">{errors.poster}</p>}
+      </div>
+    </div>
+  )
 
   return (
     <div className="space-y-8">
@@ -538,14 +671,17 @@ export default function CreateTournamentForm() {
             return (
               <div
                 key={stepId}
-                className={`rounded-2xl border px-4 py-3 text-sm ${active
+                className={`rounded-2xl border px-4 py-3 text-sm ${
+                  active
                     ? "border-indigo-600 bg-indigo-50 text-indigo-700"
                     : completed
                       ? "border-green-200 bg-green-50 text-green-700"
                       : "border-gray-200 bg-gray-50 text-gray-500"
-                  }`}
+                }`}
               >
-                <div className="font-medium">{index + 1}. {mapStepTitle(stepId)}</div>
+                <div className="font-medium">
+                  {index + 1}. {mapStepTitle(stepId)}
+                </div>
               </div>
             )
           })}
@@ -559,15 +695,32 @@ export default function CreateTournamentForm() {
       )}
 
       <form action={formAction} className="space-y-8">
+        <input
+          ref={fileInputRef}
+          name="poster"
+          type="file"
+          accept="image/*"
+          onChange={(e) => onPosterChange(e.target.files?.[0] ?? null)}
+          className="hidden"
+        />
+
+        <input type="hidden" name="title" value={draft.title} />
+        <input type="hidden" name="description" value={draft.description} />
+        <input type="hidden" name="province" value={draft.province} />
+        <input type="hidden" name="address" value={draft.address} />
+        <input type="hidden" name="date" value={draft.date} />
+        <input
+          type="hidden"
+          name="registration_deadline"
+          value={draft.registration_deadline}
+        />
         <input type="hidden" name="is_public" value={String(draft.is_public)} />
         <input type="hidden" name="has_categories" value={String(draft.has_categories)} />
         <input type="hidden" name="payment_method" value={draft.payment_method} />
         <input type="hidden" name="prize_mode" value={draft.prize_mode} />
-        <input
-          type="hidden"
-          name="min_participants"
-          value={draft.has_categories ? draft.min_participants : draft.min_participants}
-        />
+        <input type="hidden" name="prizes" value={draft.prizes} />
+        <input type="hidden" name="rules" value={draft.rules} />
+        <input type="hidden" name="min_participants" value={draft.min_participants} />
         <input
           type="hidden"
           name="max_participants"
@@ -614,7 +767,7 @@ export default function CreateTournamentForm() {
                   <div>
                     <label className="label">Provincia</label>
                     <select
-                      name="province" 
+                      name="province"
                       className="input"
                       value={draft.province}
                       onChange={(e) => updateDraft("province", e.target.value)}
@@ -690,39 +843,7 @@ export default function CreateTournamentForm() {
               </div>
 
               <div className="space-y-4">
-                <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                  <h3 className="text-lg font-semibold text-gray-900">Cartel del torneo</h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Obligatorio. JPG, PNG o similar. Máximo 5MB.
-                  </p>
-
-                  <div className="mt-4 space-y-4">
-                    <input
-                      ref={fileInputRef}
-                      name="poster"
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => onPosterChange(e.target.files?.[0] ?? null)}
-                      className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
-                    />
-
-                    {posterName && (
-                      <p className="text-sm text-gray-600">Archivo seleccionado: {posterName}</p>
-                    )}
-
-                    {posterPreview && (
-                      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
-                        <img
-                          src={posterPreview}
-                          alt="Vista previa del cartel"
-                          className="h-64 w-full object-contain"
-                        />
-                      </div>
-                    )}
-
-                    {errors.poster && <p className="error-text">{errors.poster}</p>}
-                  </div>
-                </div>
+                {posterPanel}
 
                 <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                   <h3 className="text-lg font-semibold text-gray-900">Resumen</h3>
@@ -767,10 +888,11 @@ export default function CreateTournamentForm() {
               <button
                 type="button"
                 onClick={() => updateDraft("has_categories", true)}
-                className={`rounded-2xl border p-5 text-left transition ${draft.has_categories
+                className={`rounded-2xl border p-5 text-left transition ${
+                  draft.has_categories
                     ? "border-indigo-600 bg-indigo-50"
                     : "border-gray-200 bg-white hover:border-gray-300"
-                  }`}
+                }`}
               >
                 <p className="text-lg font-semibold text-gray-900">Con categorías</p>
                 <p className="mt-2 text-sm text-gray-500">
@@ -781,10 +903,11 @@ export default function CreateTournamentForm() {
               <button
                 type="button"
                 onClick={() => updateDraft("has_categories", false)}
-                className={`rounded-2xl border p-5 text-left transition ${!draft.has_categories
+                className={`rounded-2xl border p-5 text-left transition ${
+                  !draft.has_categories
                     ? "border-indigo-600 bg-indigo-50"
                     : "border-gray-200 bg-white hover:border-gray-300"
-                  }`}
+                }`}
               >
                 <p className="text-lg font-semibold text-gray-900">Sin categorías</p>
                 <p className="mt-2 text-sm text-gray-500">
@@ -895,7 +1018,9 @@ export default function CreateTournamentForm() {
                             setCategoryDraft((prev) => ({ ...prev, price: e.target.value }))
                           }
                         />
-                        {errors.category_price && <p className="error-text">{errors.category_price}</p>}
+                        {errors.category_price && (
+                          <p className="error-text">{errors.category_price}</p>
+                        )}
                       </div>
 
                       <div>
@@ -1015,7 +1140,9 @@ export default function CreateTournamentForm() {
                     value={draft.min_participants}
                     onChange={(e) => updateDraft("min_participants", e.target.value)}
                   />
-                  {errors.min_participants && <p className="error-text">{errors.min_participants}</p>}
+                  {errors.min_participants && (
+                    <p className="error-text">{errors.min_participants}</p>
+                  )}
                 </div>
 
                 <div>
@@ -1044,7 +1171,9 @@ export default function CreateTournamentForm() {
                     value={draft.max_participants}
                     onChange={(e) => updateDraft("max_participants", e.target.value)}
                   />
-                  {errors.max_participants && <p className="error-text">{errors.max_participants}</p>}
+                  {errors.max_participants && (
+                    <p className="error-text">{errors.max_participants}</p>
+                  )}
                 </div>
 
                 <div>
@@ -1085,10 +1214,11 @@ export default function CreateTournamentForm() {
                         key={option.value}
                         type="button"
                         onClick={() => updateDraft("payment_method", option.value as PaymentMethod)}
-                        className={`rounded-2xl border p-4 text-left transition ${draft.payment_method === option.value
+                        className={`rounded-2xl border p-4 text-left transition ${
+                          draft.payment_method === option.value
                             ? "border-indigo-600 bg-indigo-50 text-indigo-700"
                             : "border-gray-200 bg-white hover:border-gray-300"
-                          }`}
+                        }`}
                       >
                         <p className="font-medium">{option.label}</p>
                       </button>
@@ -1112,10 +1242,11 @@ export default function CreateTournamentForm() {
                         key={option.value}
                         type="button"
                         onClick={() => updateDraft("prize_mode", option.value as PrizeMode)}
-                        className={`rounded-2xl border p-4 text-left transition ${draft.prize_mode === option.value
+                        className={`rounded-2xl border p-4 text-left transition ${
+                          draft.prize_mode === option.value
                             ? "border-indigo-600 bg-indigo-50 text-indigo-700"
                             : "border-gray-200 bg-white hover:border-gray-300"
-                          }`}
+                        }`}
                       >
                         <p className="font-medium">{option.label}</p>
                       </button>
@@ -1153,18 +1284,12 @@ export default function CreateTournamentForm() {
               <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                 <h3 className="text-lg font-semibold text-gray-900">Contexto de producto</h3>
                 <div className="mt-4 space-y-3 text-sm text-gray-600">
-                  <p>
-                    La inscripción pública entra primero por validación de email.
-                  </p>
-                  <p>
-                    El efectivo requiere validación manual del organizador.
-                  </p>
+                  <p>La inscripción pública entra primero por validación de email.</p>
+                  <p>El efectivo requiere validación manual del organizador.</p>
                   <p>
                     El online sigue visible en producto, aunque durante desarrollo esté simulado.
                   </p>
-                  <p>
-                    Si el torneo tiene categorías, ellas mandan en precio y cupos.
-                  </p>
+                  <p>Si el torneo tiene categorías, ellas mandan en precio y cupos.</p>
                 </div>
               </div>
             </div>
@@ -1184,11 +1309,22 @@ export default function CreateTournamentForm() {
               <div className="space-y-6">
                 <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5">
                   <h3 className="text-lg font-semibold text-gray-900">Resumen general</h3>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 text-sm text-gray-600">
-                    <p><span className="font-medium text-gray-900">Título:</span> {draft.title || "—"}</p>
-                    <p><span className="font-medium text-gray-900">Provincia:</span> {draft.province || "—"}</p>
-                    <p><span className="font-medium text-gray-900">Dirección:</span> {draft.address || "—"}</p>
-                    <p><span className="font-medium text-gray-900">Fecha:</span> {formatDate(draft.date)}</p>
+                  <div className="mt-4 grid gap-3 text-sm text-gray-600 md:grid-cols-2">
+                    <p>
+                      <span className="font-medium text-gray-900">Título:</span> {draft.title || "—"}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Provincia:</span>{" "}
+                      {draft.province || "—"}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Dirección:</span>{" "}
+                      {draft.address || "—"}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Fecha:</span>{" "}
+                      {formatDate(draft.date)}
+                    </p>
                     <p>
                       <span className="font-medium text-gray-900">Límite inscripción:</span>{" "}
                       {formatDate(draft.registration_deadline)}
@@ -1217,7 +1353,10 @@ export default function CreateTournamentForm() {
                     <h3 className="text-lg font-semibold text-gray-900">Categorías</h3>
                     <div className="mt-4 grid gap-4">
                       {draft.categories.map((category) => (
-                        <div key={category.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                        <div
+                          key={category.id}
+                          className="rounded-xl border border-gray-200 bg-white p-4"
+                        >
                           <p className="font-medium text-gray-900">{category.name}</p>
                           <div className="mt-2 space-y-1 text-sm text-gray-600">
                             <p>Precio: {formatMoney(category.price)}</p>
